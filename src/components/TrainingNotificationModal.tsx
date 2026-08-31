@@ -12,6 +12,7 @@ interface TrainingNotificationModalProps {
   loggedInPlayer?: any;
   onOpenPlayerLogin?: () => void;
   clubInfo?: ClubInfo;
+  initialChoice?: 'attend' | 'absent' | null;
 }
 
 export const TrainingNotificationModal: React.FC<TrainingNotificationModalProps> = ({
@@ -22,12 +23,19 @@ export const TrainingNotificationModal: React.FC<TrainingNotificationModalProps>
   loggedInPlayer,
   onOpenPlayerLogin,
   clubInfo,
+  initialChoice = null,
 }) => {
-  const [choice, setChoice] = useState<'attend' | 'absent' | null>(null);
+  const [choice, setChoice] = useState<'attend' | 'absent' | null>(initialChoice);
   const [playerName, setPlayerName] = useState(loggedInPlayer?.name || '');
   const [excuseReason, setExcuseReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+
+  useEffect(() => {
+    if (initialChoice) {
+      setChoice(initialChoice);
+    }
+  }, [initialChoice]);
 
   useEffect(() => {
     if (loggedInPlayer?.name) {

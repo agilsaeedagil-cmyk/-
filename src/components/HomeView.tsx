@@ -11,7 +11,7 @@ interface HomeViewProps {
   activeTraining?: TrainingSession;
   onSelectNews: (item: NewsItem) => void;
   onNavigateTab: (tab: string) => void;
-  onOpenTrainingModal: () => void;
+  onOpenTrainingModal: (choice?: 'attend' | 'absent') => void;
   onOpenMatchDetail?: (match: Match) => void;
   userRole?: 'player' | 'fan';
   loggedInPlayer?: any;
@@ -205,7 +205,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={onOpenTrainingModal}
+                  onClick={() => onOpenTrainingModal('absent')}
                   className="flex-1 bg-red-700 hover:bg-red-600 text-white font-black text-xs sm:text-sm py-2.5 px-3 rounded-xl shadow-md transition-transform active:scale-95 flex items-center justify-center gap-1.5 border border-red-400"
                 >
                   <XCircle className="w-4 h-4 text-red-200" />

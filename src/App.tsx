@@ -40,6 +40,7 @@ export default function App() {
 
   // Active Training Notification Modal State
   const [activeTrainingModal, setActiveTrainingModal] = useState<TrainingSession | null>(null);
+  const [trainingModalInitialChoice, setTrainingModalInitialChoice] = useState<'attend' | 'absent' | null>(null);
   const [selectedLiveMatchModal, setSelectedLiveMatchModal] = useState<Match | null>(null);
 
   // User Role & Authentication State (Requirement: Initial welcome choice portal)
@@ -272,13 +273,15 @@ export default function App() {
       // localStorage error fallback
     }
 
-    // 🚀 Check URL params or Session Storage for Push Notification Deep Linking (e.g. ?screen=gallery&galleryPostId=xxx)
+    // 🚀 Check URL params or Session Storage for Push Notification Deep Linking (e.g. ?screen=training_confirm&action=confirm)
     const checkUrlOrSessionDeepLink = () => {
       try {
         if (typeof window !== 'undefined') {
           const urlParams = new URLSearchParams(window.location.search);
           const screenParam = urlParams.get('screen') || urlParams.get('target') || urlParams.get('tab');
           const galleryPostId = urlParams.get('galleryPostId') || (screenParam === 'gallery' ? urlParams.get('postId') : null);
+          const trainingSessionId = urlParams.get('trainingSessionId') || (screenParam === 'training_confirm' ? urlParams.get('sessionId') : null);
+          const actionParam = urlParams.get('action');
 
           if (screenParam === 'gallery' || galleryPostId) {
             console.log("📲 [DeepLink] Detected notification deep link to Gallery with postId:", galleryPostId);
@@ -287,7 +290,26 @@ export default function App() {
             if (galleryPostId) {
               setTargetGalleryPostId(galleryPostId);
             }
-            // تنظيف الرابط في المتصفح للحفاظ على نظافة العنوان
+            try {
+              window.history.replaceState({}, document.title, window.location.pathname);
+            } catch {}
+          } else if (screenParam === 'training_confirm' || screenParam === 'training' || trainingSessionId) {
+            console.log("📲 [DeepLink] Detected notification deep link to Training Confirmation:", trainingSessionId, actionParam);
+            setShowWelcome(false);
+            setActiveTab('home');
+
+            if (actionParam === 'confirm' || actionParam === 'attend') {
+              setTrainingModalInitialChoice('attend');
+            } else if (actionParam === 'apologize' || actionParam === 'absent') {
+              setTrainingModalInitialChoice('absent');
+            }
+
+            // Find matching training session or use cached/active training
+            const cachedTrainings = getLocalCache<TrainingSession[]>('trainings', []);
+            const targetSession = (trainingSessionId ? cachedTrainings.find((t) => t.id === trainingSessionId) : null) || cachedTrainings[0];
+            if (targetSession) {
+              setActiveTrainingModal(targetSession);
+            }
             try {
               window.history.replaceState({}, document.title, window.location.pathname);
             } catch {}
@@ -304,8 +326,10 @@ export default function App() {
     const handleServiceWorkerMessage = (event: MessageEvent) => {
       if (event.data && (event.data.type === 'ONESIGNAL_NOTIFICATION_CLICK' || event.data.type === 'NOTIFICATION_CLICK')) {
         const notifData = event.data.data || {};
-        const targetScreen = event.data.targetScreen || notifData.deepLink || (notifData.type === 'gallery' ? 'gallery' : '');
+        const targetScreen = event.data.targetScreen || notifData.deepLink || notifData.screen || (notifData.type === 'gallery' ? 'gallery' : '');
         const gPostId = event.data.galleryPostId || notifData.galleryPostId || notifData.postId;
+        const tSessionId = event.data.trainingSessionId || notifData.trainingSessionId;
+        const actionParam = event.data.action || notifData.action;
 
         console.log("📲 [SW Message] Received notification click payload:", notifData);
         if (targetScreen === 'gallery' || gPostId || notifData.type === 'gallery') {
@@ -313,6 +337,21 @@ export default function App() {
           setActiveTab('gallery');
           if (gPostId) {
             setTargetGalleryPostId(gPostId);
+          }
+        } else if (targetScreen === 'training_confirm' || tSessionId || notifData.type === 'training') {
+          setShowWelcome(false);
+          setActiveTab('home');
+
+          if (actionParam === 'confirm' || actionParam === 'attend') {
+            setTrainingModalInitialChoice('attend');
+          } else if (actionParam === 'apologize' || actionParam === 'absent') {
+            setTrainingModalInitialChoice('absent');
+          }
+
+          const cachedTrainings = getLocalCache<TrainingSession[]>('trainings', []);
+          const targetSession = (tSessionId ? cachedTrainings.find((t) => t.id === tSessionId) : null) || cachedTrainings[0];
+          if (targetSession) {
+            setActiveTrainingModal(targetSession);
           }
         }
       }
@@ -329,14 +368,30 @@ export default function App() {
         win.OneSignal.Notifications.addEventListener('click', (event: any) => {
           console.log("📲 [OneSignal SDK Click Event]:", event);
           const additionalData = event?.notification?.additionalData || event?.result?.notification?.additionalData;
-          const deepLink = additionalData?.deepLink || (additionalData?.type === 'gallery' ? 'gallery' : '');
+          const deepLink = additionalData?.deepLink || additionalData?.screen || (additionalData?.type === 'gallery' ? 'gallery' : '');
           const gPostId = additionalData?.galleryPostId || additionalData?.postId;
+          const tSessionId = additionalData?.trainingSessionId;
+          const actionParam = event?.result?.actionId || additionalData?.action;
 
           if (deepLink === 'gallery' || gPostId || additionalData?.type === 'gallery') {
-            setShowWelcome(false); // تجاوز شاشة البداية فوراً
+            setShowWelcome(false);
             setActiveTab('gallery');
             if (gPostId) {
               setTargetGalleryPostId(gPostId);
+            }
+          } else if (deepLink === 'training_confirm' || tSessionId || additionalData?.type === 'training') {
+            setShowWelcome(false);
+            setActiveTab('home');
+            if (actionParam === 'confirm_attendance' || actionParam === 'confirm' || actionParam === 'attend') {
+              setTrainingModalInitialChoice('attend');
+            } else if (actionParam === 'apologize_attendance' || actionParam === 'apologize' || actionParam === 'absent') {
+              setTrainingModalInitialChoice('absent');
+            }
+
+            const cachedTrainings = getLocalCache<TrainingSession[]>('trainings', []);
+            const targetSession = (tSessionId ? cachedTrainings.find((t) => t.id === tSessionId) : null) || cachedTrainings[0];
+            if (targetSession) {
+              setActiveTrainingModal(targetSession);
             }
           }
         });
@@ -351,13 +406,30 @@ export default function App() {
         const customData = e?.detail?.custom || e?.detail?.data || e?.detail?.additionalData || e?.detail;
         console.log("📲 [Median Push Event Detail]:", customData);
         if (customData) {
-          const deepLink = customData.deepLink || (customData.type === 'gallery' ? 'gallery' : '');
+          const deepLink = customData.deepLink || customData.screen || (customData.type === 'gallery' ? 'gallery' : '');
           const gPostId = customData.galleryPostId || customData.postId;
+          const tSessionId = customData.trainingSessionId;
+          const actionParam = customData.action;
+
           if (deepLink === 'gallery' || gPostId || customData.type === 'gallery') {
-            setShowWelcome(false); // تجاوز شاشة البداية فوراً
+            setShowWelcome(false);
             setActiveTab('gallery');
             if (gPostId) {
               setTargetGalleryPostId(gPostId);
+            }
+          } else if (deepLink === 'training_confirm' || tSessionId || customData.type === 'training') {
+            setShowWelcome(false);
+            setActiveTab('home');
+            if (actionParam === 'confirm_attendance' || actionParam === 'confirm' || actionParam === 'attend') {
+              setTrainingModalInitialChoice('attend');
+            } else if (actionParam === 'apologize_attendance' || actionParam === 'apologize' || actionParam === 'absent') {
+              setTrainingModalInitialChoice('absent');
+            }
+
+            const cachedTrainings = getLocalCache<TrainingSession[]>('trainings', []);
+            const targetSession = (tSessionId ? cachedTrainings.find((t) => t.id === tSessionId) : null) || cachedTrainings[0];
+            if (targetSession) {
+              setActiveTrainingModal(targetSession);
             }
           }
         }
@@ -755,7 +827,14 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => {
-                      if (activeToastNotif.type === 'gallery' || activeToastNotif.galleryPostId || activeToastNotif.deepLink === 'gallery') {
+                      const isTraining = activeToastNotif.type === 'training' || Boolean(activeToastNotif.trainingSessionId);
+                      if (isTraining) {
+                        const sId = activeToastNotif.trainingSessionId;
+                        const matchingSession = (sId ? trainingSessions.find((t) => t.id === sId) : null) || activeTraining || trainingSessions[0];
+                        if (matchingSession) {
+                          setActiveTrainingModal(matchingSession);
+                        }
+                      } else if (activeToastNotif.type === 'gallery' || activeToastNotif.galleryPostId || activeToastNotif.deepLink === 'gallery') {
                         setActiveTab('gallery');
                         if (activeToastNotif.galleryPostId) {
                           setTargetGalleryPostId(activeToastNotif.galleryPostId);
@@ -793,7 +872,10 @@ export default function App() {
                   activeTraining={activeTraining}
                   onSelectNews={handleSelectNewsFromHome}
                   onNavigateTab={(tab) => setActiveTab(tab)}
-                  onOpenTrainingModal={() => setActiveTrainingModal(activeTraining)}
+                  onOpenTrainingModal={(choice) => {
+                    setActiveTrainingModal(activeTraining);
+                    if (choice) setTrainingModalInitialChoice(choice);
+                  }}
                   onOpenMatchDetail={(match) => setSelectedLiveMatchModal(match)}
                   userRole={userRole}
                   loggedInPlayer={loggedInPlayer}
@@ -864,7 +946,10 @@ export default function App() {
           <NotificationsCenter
             notifications={notifications}
             trainingSessions={trainingSessions}
-            onOpenTrainingModal={(session) => setActiveTrainingModal(session)}
+            onOpenTrainingModal={(session, choice) => {
+              setActiveTrainingModal(session);
+              if (choice) setTrainingModalInitialChoice(choice);
+            }}
             onNavigateToGallery={(postId) => {
               setActiveTab('gallery');
               if (postId) {
@@ -899,8 +984,15 @@ export default function App() {
         {activeTrainingModal && (
           <TrainingNotificationModal
             session={activeTrainingModal}
-            onClose={() => setActiveTrainingModal(null)}
-            onSubmitted={(sessionId) => handleAttendanceSubmitted(sessionId)}
+            initialChoice={trainingModalInitialChoice}
+            onClose={() => {
+              setActiveTrainingModal(null);
+              setTrainingModalInitialChoice(null);
+            }}
+            onSubmitted={(sessionId) => {
+              handleAttendanceSubmitted(sessionId);
+              setTrainingModalInitialChoice(null);
+            }}
             userRole={userRole}
             loggedInPlayer={loggedInPlayer}
             onOpenPlayerLogin={() => setIsPlayerLoginOpen(true)}

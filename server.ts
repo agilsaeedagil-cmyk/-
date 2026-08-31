@@ -803,6 +803,8 @@ async function startServer() {
     data?: Record<string, any>;
     playerIds?: string[];
     segments?: string[];
+    buttons?: Array<{ id: string; text: string; icon?: string }>;
+    web_buttons?: Array<{ id: string; text: string; icon?: string; url?: string }>;
   }): Promise<{ success: boolean; data?: any; error?: string; status?: number; reason?: string }> {
     const appId = (oneSignalConfig.appId || process.env.ONESIGNAL_APP_ID || process.env.ONESIGNAL_ID || '').trim();
     const apiKey = (oneSignalConfig.apiKey || process.env.ONESIGNAL_REST_API_KEY || process.env.REST_API_KEY || process.env.ONESIGNAL_API_KEY || '').trim();
@@ -845,6 +847,9 @@ async function startServer() {
       });
     }
 
+    const isTraining = options.data?.type === 'training' || Boolean(options.data?.trainingSessionId);
+    const trainingSessionId = options.data?.trainingSessionId || '';
+
     // تجهيز الحمولة (Payload) المطابقة للمواصفات الرسمية لـ OneSignal API v1
     const payload: Record<string, any> = {
       app_id: appId,
@@ -852,24 +857,50 @@ async function startServer() {
       contents: { ar: options.message, en: options.message },
       data: {
         ...(options.data || {}),
-        android_channel_id: 'd375dad7-cf17-40a3-9cb2-10d3aacffa67',
+        android_channel_id: 'salam_channel_id',
       },
       // 🚀 إعدادات أندرويد الرسمية للأولوية القصوى والبنر العائم (Heads-up / High Importance)
       priority: 10,
-      android_channel_id: options.data?.android_channel_id || 'd375dad7-cf17-40a3-9cb2-10d3aacffa67',
+      android_channel_id: options.data?.android_channel_id || 'salam_channel_id',
       android_visibility: 1, // إظهار كامل على شاشة القفل
       android_accent_color: 'FFD70000', // لون النادي الأحمر
       small_icon: 'ic_stat_onesignal_default',
       large_icon: 'https://ais-dev-xe7fntsxyy6sunhjo7myoo-601184627383.europe-west1.run.app/logo-salam.png',
     };
 
+    // أزرار التفاعل المباشرة لإشعارات التمارين (Interactive Action Buttons للاعبين)
+    if (isTraining) {
+      const defaultButtons = [
+        { id: 'confirm_attendance', text: '✅ تأكيد الحضور' },
+        { id: 'apologize_attendance', text: '❌ اعتذار' },
+      ];
+      const defaultWebButtons = [
+        {
+          id: 'confirm_attendance',
+          text: '✅ تأكيد الحضور',
+          url: `/?screen=training_confirm&action=confirm&trainingSessionId=${trainingSessionId}`,
+        },
+        {
+          id: 'apologize_attendance',
+          text: '❌ اعتذار',
+          url: `/?screen=training_confirm&action=apologize&trainingSessionId=${trainingSessionId}`,
+        },
+      ];
+
+      payload.buttons = options.buttons || defaultButtons;
+      payload.web_buttons = options.web_buttons || defaultWebButtons;
+      payload.url = options.url || `/?screen=training_confirm&trainingSessionId=${trainingSessionId}`;
+      payload.data.screen = 'training_confirm';
+      payload.data.deepLink = 'training_confirm';
+    } else {
+      if (options.buttons) payload.buttons = options.buttons;
+      if (options.web_buttons) payload.web_buttons = options.web_buttons;
+      if (options.url) payload.url = options.url;
+    }
+
     // إذا تم تمرير android_channel_id ديناميكياً من الطلب
     if (options.data?.android_channel_id) {
       payload.android_channel_id = options.data.android_channel_id;
-    }
-
-    if (options.url) {
-      payload.url = options.url;
     }
 
     // تحديد الجمهور المستهدف (Target Audience)
@@ -1015,14 +1046,23 @@ async function startServer() {
     const rawTitle = (req.body.title || '').trim();
     const formattedTitle = rawTitle.startsWith('🇧🇹') ? rawTitle : `🇧🇹 ${rawTitle}`;
 
+    let messageText = (req.body.message || '').trim();
+    const isTraining = req.body.type === 'training' || Boolean(req.body.trainingSessionId);
+    
+    // إضافة عبارة التوجيه السريع في نهاية نص إشعار التمرين إذا لم تكن موجودة
+    const quickActionPrompt = 'انقر هنا لتأكيد حضورك أو الاعتذار';
+    if (isTraining && !messageText.includes(quickActionPrompt)) {
+      messageText = `${messageText}\n\n📲 ${quickActionPrompt}`;
+    }
+
     const newNotif: AppNotification = {
       id: req.body.id || `notif-${Date.now()}`,
       title: formattedTitle,
-      message: req.body.message,
+      message: messageText,
       type: req.body.type || 'general',
       trainingSessionId: req.body.trainingSessionId,
       galleryPostId: req.body.galleryPostId,
-      deepLink: req.body.deepLink || (req.body.type === 'gallery' ? 'gallery' : undefined),
+      deepLink: req.body.deepLink || (isTraining ? 'training_confirm' : (req.body.type === 'gallery' ? 'gallery' : undefined)),
       date: req.body.date || 'الآن',
       read: false,
     };
@@ -1044,6 +1084,7 @@ async function startServer() {
         trainingSessionId: newNotif.trainingSessionId,
         galleryPostId: newNotif.galleryPostId,
         deepLink: newNotif.deepLink,
+        screen: isTraining ? 'training_confirm' : undefined,
       },
     }).catch((err) => {
       console.warn('OneSignal broadcast push error:', err);

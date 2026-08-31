@@ -183,6 +183,21 @@ self.addEventListener('push', (event) => {
 
   // التأكد من وجود أيقونة النادي 🇧🇹 في بداية العنوان
   const title = data.title.startsWith('🇧🇹') ? data.title : `🇧🇹 ${data.title}`;
+  const notifPayload = data.data || {};
+  const isTraining = notifPayload.type === 'training' || Boolean(notifPayload.trainingSessionId);
+
+  let defaultActions = [
+    { action: 'open', title: 'فتح التطبيق' },
+    { action: 'dismiss', title: 'إغلاق' }
+  ];
+
+  if (isTraining) {
+    defaultActions = [
+      { action: 'confirm_attendance', title: '✅ تأكيد الحضور' },
+      { action: 'apologize_attendance', title: '❌ اعتذار' },
+      { action: 'open', title: 'فتح التمرين' }
+    ];
+  }
 
   const options = {
     body: data.body,
@@ -191,14 +206,11 @@ self.addEventListener('push', (event) => {
     dir: 'rtl',
     lang: 'ar',
     vibrate: [250, 100, 250, 100, 250],
-    tag: data.tag || 'salam_channel_id',
+    tag: data.tag || (isTraining ? 'salam_training_channel' : 'salam_channel_id'),
     renotify: true,
     requireInteraction: true,
     data: { ...(data.data || {}), channelId: 'salam_channel_id' },
-    actions: [
-      { action: 'open', title: 'فتح التطبيق' },
-      { action: 'dismiss', title: 'إغلاق' }
-    ]
+    actions: defaultActions
   };
 
   event.waitUntil(
@@ -214,6 +226,20 @@ self.addEventListener('message', (event) => {
       ? (title || '🇧🇹 إشعار من فريق السلام') 
       : `🇧🇹 ${title || 'إشعار من فريق السلام'}`;
 
+    const isTraining = options?.data?.type === 'training' || Boolean(options?.data?.trainingSessionId);
+    let actions = options?.actions || [
+      { action: 'open', title: 'فتح التطبيق' },
+      { action: 'dismiss', title: 'إغلاق' }
+    ];
+
+    if (isTraining) {
+      actions = [
+        { action: 'confirm_attendance', title: '✅ تأكيد الحضور' },
+        { action: 'apologize_attendance', title: '❌ اعتذار' },
+        { action: 'open', title: 'فتح التمرين' }
+      ];
+    }
+
     self.registration.showNotification(cleanTitle, {
       body: options?.body || '',
       icon: options?.icon || '/logo-salam.png',
@@ -222,6 +248,7 @@ self.addEventListener('message', (event) => {
       lang: 'ar',
       vibrate: [250, 100, 250],
       requireInteraction: false,
+      actions,
       ...options,
     });
   }
@@ -236,11 +263,28 @@ self.addEventListener('notificationclick', (event) => {
   }
 
   const notifData = event.notification.data || {};
-  const deepLink = notifData.deepLink || (notifData.type === 'gallery' || notifData.galleryPostId ? 'gallery' : '');
+  const isTraining = notifData.type === 'training' || Boolean(notifData.trainingSessionId) || notifData.screen === 'training_confirm';
+  const trainingSessionId = notifData.trainingSessionId || '';
+  const isGallery = notifData.deepLink === 'gallery' || notifData.type === 'gallery' || Boolean(notifData.galleryPostId);
   const galleryPostId = notifData.galleryPostId || notifData.postId || '';
-  const targetUrl = deepLink === 'gallery' || galleryPostId
-    ? `/?screen=gallery&postId=${encodeURIComponent(galleryPostId)}`
-    : '/';
+
+  let actionParam = '';
+  if (event.action === 'confirm_attendance' || event.action === 'confirm') {
+    actionParam = 'confirm';
+  } else if (event.action === 'apologize_attendance' || event.action === 'apologize') {
+    actionParam = 'apologize';
+  }
+
+  let targetUrl = '/';
+  let targetScreen = 'home';
+
+  if (isTraining) {
+    targetScreen = 'training_confirm';
+    targetUrl = `/?screen=training_confirm&trainingSessionId=${encodeURIComponent(trainingSessionId)}${actionParam ? `&action=${actionParam}` : ''}`;
+  } else if (isGallery) {
+    targetScreen = 'gallery';
+    targetUrl = `/?screen=gallery&postId=${encodeURIComponent(galleryPostId)}`;
+  }
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
@@ -250,8 +294,10 @@ self.addEventListener('notificationclick', (event) => {
           client.postMessage({
             type: 'ONESIGNAL_NOTIFICATION_CLICK',
             data: notifData,
-            targetScreen: 'gallery',
-            galleryPostId: galleryPostId,
+            targetScreen,
+            action: actionParam,
+            trainingSessionId,
+            galleryPostId,
           });
           return client.focus();
         }

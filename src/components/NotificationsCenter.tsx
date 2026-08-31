@@ -8,7 +8,7 @@ import { requestNotificationPermission, showSystemNotification, playNotification
 interface NotificationsCenterProps {
   notifications: AppNotification[];
   trainingSessions: TrainingSession[];
-  onOpenTrainingModal: (session: TrainingSession) => void;
+  onOpenTrainingModal: (session: TrainingSession, initialChoice?: 'attend' | 'absent') => void;
   onNavigateToGallery?: (galleryPostId?: string) => void;
   onClose: () => void;
   attendanceResponses?: AttendanceResponse[];
@@ -330,26 +330,60 @@ export const NotificationsCenter: React.FC<NotificationsCenterProps> = ({
                     </div>
                   )}
 
-                  {/* Training Notification Action Button */}
+                  {/* Training Notification Action Buttons (Exclusive for Players) */}
                   {notif.type === 'training' && linkedTraining && (
-                    <div className="mt-3 pt-2.5 border-t border-white/10">
+                    <div className="mt-3 pt-2.5 border-t border-amber-500/20 space-y-2">
                       {userRole === 'player' ? (
-                        <div className="flex items-center justify-between">
-                          <span className="text-[11px] text-amber-200 font-bold">تسجيل موقفك من التمرين:</span>
-                          <button
-                            onClick={() => {
-                              apiService.trackNotificationOpen(notif.id, {
-                                userId: loggedInPlayer?.pin || 'player',
-                                userName: loggedInPlayer?.name || 'لاعب',
-                              });
-                              onClose();
-                              onOpenTrainingModal(linkedTraining);
-                            }}
-                            className="bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-xs px-3.5 py-1.5 rounded-xl shadow-md transition-transform active:scale-95 flex items-center gap-1"
-                          >
-                            <Flame className="w-3.5 h-3.5" />
-                            <span>تجاوب مع التمرين (حضور/اعتذار)</span>
-                          </button>
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] text-amber-200 font-bold">تسجيل موقفك المباشر:</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                apiService.trackNotificationOpen(notif.id, {
+                                  userId: loggedInPlayer?.pin || 'player',
+                                  userName: loggedInPlayer?.name || 'لاعب',
+                                });
+                                onClose();
+                                onOpenTrainingModal(linkedTraining);
+                              }}
+                              className="text-[11px] text-amber-400 hover:text-amber-300 underline font-bold transition-colors"
+                            >
+                              انقر هنا لتأكيد حضورك أو الاعتذار 📲
+                            </button>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                apiService.trackNotificationOpen(notif.id, {
+                                  userId: loggedInPlayer?.pin || 'player',
+                                  userName: loggedInPlayer?.name || 'لاعب',
+                                });
+                                onClose();
+                                onOpenTrainingModal(linkedTraining, 'attend');
+                              }}
+                              className="bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs py-2 px-3 rounded-xl shadow-md transition-transform active:scale-95 flex items-center justify-center gap-1 border border-emerald-400"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>تأكيد الحضور ✅</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                apiService.trackNotificationOpen(notif.id, {
+                                  userId: loggedInPlayer?.pin || 'player',
+                                  userName: loggedInPlayer?.name || 'لاعب',
+                                });
+                                onClose();
+                                onOpenTrainingModal(linkedTraining, 'absent');
+                              }}
+                              className="bg-red-700 hover:bg-red-600 text-white font-extrabold text-xs py-2 px-3 rounded-xl shadow-md transition-transform active:scale-95 flex items-center justify-center gap-1 border border-red-500"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                              <span>اعتذار ❌</span>
+                            </button>
+                          </div>
                         </div>
                       ) : (
                         <div className="w-full flex items-center justify-between text-[11px] text-amber-300 font-semibold bg-amber-500/10 p-2 rounded-xl border border-amber-500/20">
