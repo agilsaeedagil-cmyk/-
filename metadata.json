@@ -1,0 +1,6 @@
+{
+  "name": "تطبيق فريق السلام الرياضي بكثيبة",
+  "description": "التطبيق الرسمي لفريق السلام الرياضي بكثيبة (صقور الريف) - الأخبار، جدول المباريات، قائمة اللاعبين، وإشعارات التمارين التفاعلية.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
