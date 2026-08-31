@@ -259,6 +259,11 @@ export default function App() {
         setUserRole('player');
         setLoggedInPlayer(JSON.parse(savedPlayer));
         setShowWelcome(false);
+        setActiveTab('home');
+      } else if (savedRole === 'fan') {
+        setUserRole('fan');
+        setShowWelcome(false);
+        setActiveTab('home');
       }
       if (savedResponded) {
         setRespondedSessionIds(JSON.parse(savedResponded));
