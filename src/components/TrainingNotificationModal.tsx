@@ -30,6 +30,7 @@ export const TrainingNotificationModal: React.FC<TrainingNotificationModalProps>
   const [excuseReason, setExcuseReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (initialChoice) {
@@ -45,13 +46,14 @@ export const TrainingNotificationModal: React.FC<TrainingNotificationModalProps>
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMessage(null);
     if (!playerName.trim()) {
-      alert('يرجى كتابة اسمك الكامل لإنهاء التسجيل');
+      setErrorMessage('يرجى كتابة اسمك الكامل لإنهاء التسجيل');
       return;
     }
 
     if (choice === 'absent' && !excuseReason.trim()) {
-      alert('يرجى كتابة السبب / العذر للاعتذار');
+      setErrorMessage('يرجى كتابة السبب / العذر للاعتذار');
       return;
     }
 
@@ -72,7 +74,7 @@ export const TrainingNotificationModal: React.FC<TrainingNotificationModalProps>
         onClose();
       }, 1500);
     } catch {
-      alert('حدث خطأ أثناء إرسال استجابتك، يرجى المحاولة مرة أخرى');
+      setErrorMessage('حدث خطأ أثناء إرسال استجابتك، يرجى المحاولة مرة أخرى');
     } finally {
       setIsSubmitting(false);
     }
@@ -154,8 +156,16 @@ export const TrainingNotificationModal: React.FC<TrainingNotificationModalProps>
                 </button>
               )}
             </div>
-          ) : isSuccess ? (
-            /* Success Banner */
+          ) : (
+            <>
+              {errorMessage && (
+                <div className="bg-red-950/90 border border-red-500/70 text-red-200 text-xs px-3 py-2 rounded-xl text-center font-bold animate-in fade-in shadow-md">
+                  {errorMessage}
+                </div>
+              )}
+
+              {isSuccess ? (
+                /* Success Banner */
             <div className="bg-emerald-900/80 border-2 border-emerald-500 rounded-2xl p-4 text-center space-y-2 animate-in zoom-in-95">
               <CheckCircle2 className="w-10 h-10 text-emerald-400 mx-auto" />
               <h3 className="font-extrabold text-base text-white">
@@ -294,6 +304,8 @@ export const TrainingNotificationModal: React.FC<TrainingNotificationModalProps>
                 </button>
               </div>
             </form>
+          )}
+          </>
           )}
         </div>
       </div>

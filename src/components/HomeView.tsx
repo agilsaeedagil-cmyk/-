@@ -41,10 +41,12 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const [isTrainingBannerDismissed, setIsTrainingBannerDismissed] = useState<boolean>(() => {
     try {
       if (!activeTraining?.id) return true;
+      const cleanId = String(activeTraining.id).trim();
+      if (sessionStorage.getItem(`salam_dismissed_training_${cleanId}`) === 'true') return true;
       const trainDeleted = getDeletedIds('training_sessions');
       const notifDeleted = getDeletedIds('notifications');
       const exSet = new Set([...trainDeleted, ...notifDeleted, 'train-1', 'notif-1']);
-      if (exSet.has(String(activeTraining.id).trim())) return true;
+      if (exSet.has(cleanId)) return true;
       const text = `${activeTraining.title || ''} ${activeTraining.location || ''} ${activeTraining.note || ''}`;
       if (text.includes('تمرين ياشباب') || text.includes('ملعب السلام بكثيبة')) return true;
     } catch {}
@@ -54,10 +56,15 @@ export const HomeView: React.FC<HomeViewProps> = ({
   useEffect(() => {
     if (!activeTraining?.id) return;
     try {
+      const cleanId = String(activeTraining.id).trim();
+      if (sessionStorage.getItem(`salam_dismissed_training_${cleanId}`) === 'true') {
+        setIsTrainingBannerDismissed(true);
+        return;
+      }
       const trainDeleted = getDeletedIds('training_sessions');
       const notifDeleted = getDeletedIds('notifications');
       const exSet = new Set([...trainDeleted, ...notifDeleted, 'train-1', 'notif-1']);
-      if (exSet.has(String(activeTraining.id).trim())) {
+      if (exSet.has(cleanId)) {
         setIsTrainingBannerDismissed(true);
       }
     } catch {}
@@ -67,29 +74,29 @@ export const HomeView: React.FC<HomeViewProps> = ({
     setIsTrainingBannerDismissed(true);
     if (activeTraining?.id) {
       const cleanId = String(activeTraining.id).trim();
-      recordDeletedTrainingSession(cleanId);
-      recordDeletedNotification(cleanId);
-      apiService.deleteTrainingSession(cleanId).catch(() => {});
-      apiService.deleteNotification(cleanId).catch(() => {});
+      try {
+        sessionStorage.setItem(`salam_dismissed_training_${cleanId}`, 'true');
+      } catch {}
     }
   };
 
-  // Check if current player/user has already responded to the active training session
+  // Find response of current logged-in player
+  const playerResponse = attendanceResponses.find((resp) => {
+    if (!activeTraining?.id || resp.sessionId !== activeTraining.id) return false;
+    if (loggedInPlayer?.id && resp.playerId === loggedInPlayer.id) return true;
+    if (loggedInPlayer?.name && resp.playerName) {
+      const p1 = loggedInPlayer.name.trim().toLowerCase();
+      const p2 = resp.playerName.trim().toLowerCase();
+      if (p1 === p2 || p1.includes(p2) || p2.includes(p1)) return true;
+    }
+    return false;
+  });
+
   const hasRespondedToTraining = Boolean(
-    activeTraining && (
-      respondedSessionIds.includes(activeTraining.id) ||
-      attendanceResponses.some((resp) => {
-        if (resp.sessionId !== activeTraining.id) return false;
-        if (loggedInPlayer?.id && resp.playerId === loggedInPlayer.id) return true;
-        if (loggedInPlayer?.name && resp.playerName) {
-          const p1 = loggedInPlayer.name.trim().toLowerCase();
-          const p2 = resp.playerName.trim().toLowerCase();
-          if (p1 === p2 || p1.includes(p2) || p2.includes(p1)) return true;
-        }
-        return false;
-      })
-    )
+    activeTraining && (respondedSessionIds.includes(activeTraining.id) || playerResponse)
   );
+  const isAttending = playerResponse ? playerResponse.attending === true : (activeTraining ? respondedSessionIds.includes(activeTraining.id) : false);
+  const isApologized = playerResponse ? playerResponse.attending === false : false;
 
   const handleQuickAttend = async () => {
     if (!activeTraining) return;
@@ -105,7 +112,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
         onAttendanceSubmitted(activeTraining.id);
       }
     } catch {
-      alert('حدث خطأ أثناء تسجيل الحضور، يرجى المحاولة مرة أخرى');
+      onOpenTrainingModal('attend');
     } finally {
       setIsQuickSubmitting(false);
     }
@@ -147,91 +154,170 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
   return (
     <div dir="rtl" className="space-y-5 pb-8 px-4 text-white">
-      {/* Active Training Session Alert Banner (Special Requirement) */}
-      {activeTraining && !hasRespondedToTraining && !isTrainingBannerDismissed && (
-        <div className="bg-gradient-to-r from-red-900/95 via-amber-900/90 to-red-950 border-2 border-amber-500/80 rounded-2xl p-4 sm:p-5 shadow-xl relative overflow-hidden">
-          <div className="flex items-start justify-between gap-3">
-            <div className="space-y-1.5 flex-1 min-w-0">
-              <div className="flex items-center flex-wrap gap-2">
-                <span dir="rtl" className="inline-flex items-center gap-1.5 bg-amber-500 text-black text-xs font-black px-3 py-0.5 rounded-full uppercase tracking-wider select-none text-right shadow">
-                  <span className="text-xs shrink-0">🇧🇹</span>
-                  <span>إشعار تمرين</span>
-                </span>
-                <span className="text-amber-300 text-xs sm:text-sm font-bold">{activeTraining.time}</span>
-              </div>
-              <h3 dir="rtl" className="font-extrabold text-white text-base sm:text-lg mt-1 flex items-start gap-1.5 text-right break-words text-wrap">
-                <span className="text-base shrink-0 mt-0.5">🇧🇹</span>
-                <span className="break-words text-wrap">{activeTraining.title.replace(/^🇧🇹\s*/, '')}</span>
-              </h3>
-              <p className="text-xs sm:text-sm text-gray-200 flex items-center gap-1.5 break-words text-wrap">
-                <MapPin className="w-4 h-4 text-amber-400 shrink-0" />
-                <span>{activeTraining.location}</span>
-              </p>
+      {/* 🇧🇹 Active Training Session Card (Directly Below Stats Bar) */}
+      {activeTraining && !isTrainingBannerDismissed && (
+        <section 
+          id="training-session-card" 
+          aria-label="إشعار التمرين الرسمي"
+          className="relative bg-gradient-to-b from-[#2e0909] via-[#1a0808] to-[#120505] border-2 border-amber-500/80 rounded-2xl p-4 sm:p-5 shadow-[0_12px_40px_rgba(0,0,0,0.85)] ring-1 ring-amber-400/30 overflow-hidden text-right"
+        >
+          {/* Subtle Ambient Watermark */}
+          <div className="absolute -left-6 -bottom-6 opacity-10 pointer-events-none select-none">
+            <Logo size={140} />
+          </div>
 
-              {activeTraining.note && (
-                <div className="bg-black/40 backdrop-blur-md rounded-xl p-3 border border-amber-500/30 text-amber-100 text-xs sm:text-sm mt-2 space-y-1 break-words text-wrap">
-                  <span className="font-bold text-amber-400 block text-xs">📝 ملاحظات المدرب:</span>
-                  <p className="leading-relaxed whitespace-pre-line break-words text-wrap">{activeTraining.note}</p>
-                </div>
+          {/* Top Header Row */}
+          <div className="flex items-start justify-between gap-3 relative z-10">
+            <div className="flex items-center flex-wrap gap-2">
+              <span className="inline-flex items-center gap-1.5 bg-gradient-to-r from-amber-500 to-amber-600 text-black text-xs font-black px-3 py-1 rounded-full shadow-md select-none">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-600 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-red-700"></span>
+                </span>
+                <span>🇧🇹 إشعار تمرين رسمي</span>
+              </span>
+              {activeTraining.time && (
+                <span className="inline-flex items-center gap-1 bg-black/50 text-amber-300 border border-amber-500/30 text-xs font-bold px-2.5 py-0.5 rounded-lg">
+                  <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span>{activeTraining.time}</span>
+                </span>
               )}
             </div>
 
-            {/* Top Close / Cancel Button (علامة X لإلغاء إشعار التمرين) */}
+            {/* Dismiss Card Button (X) */}
             <button
               type="button"
               onClick={handleDismissTrainingBanner}
-              className="p-1.5 rounded-full bg-black/60 hover:bg-black/80 text-amber-300 border border-amber-500/40 shrink-0 transition-transform active:scale-90"
-              title="إلغاء / إغلاق الإشعار"
-              aria-label="إلغاء / إغلاق الإشعار"
+              className="p-1.5 rounded-full bg-black/60 hover:bg-black/90 text-gray-300 hover:text-amber-300 border border-white/10 hover:border-amber-500/50 shrink-0 transition-transform active:scale-90 cursor-pointer"
+              title="إخفاء الإشعار"
+              aria-label="إخفاء الإشعار"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
 
-          {userRole === 'player' ? (
-            <div className="mt-4 pt-3 border-t border-white/20 space-y-2.5">
-              <p className="text-xs sm:text-sm text-amber-200 font-bold">
-                ⚽ أهلاً كابتن {loggedInPlayer?.name || 'اللاعب'}: يرجى تحديد تسجيل موقفك من التمرين:
-              </p>
-              <div className="flex items-center gap-2.5">
-                <button
-                  type="button"
-                  disabled={isQuickSubmitting}
-                  onClick={handleQuickAttend}
-                  className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs sm:text-sm py-2.5 px-3 rounded-xl shadow-md transition-transform active:scale-95 flex items-center justify-center gap-1.5 border border-emerald-400"
-                >
-                  <CheckCircle2 className="w-4 h-4 text-emerald-200" />
-                  <span>{isQuickSubmitting ? 'جاري الحفظ...' : 'حضور ✅'}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onOpenTrainingModal('absent')}
-                  className="flex-1 bg-red-700 hover:bg-red-600 text-white font-black text-xs sm:text-sm py-2.5 px-3 rounded-xl shadow-md transition-transform active:scale-95 flex items-center justify-center gap-1.5 border border-red-400"
-                >
-                  <XCircle className="w-4 h-4 text-red-200" />
-                  <span>اعتذار ❌</span>
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="mt-3 pt-3 border-t border-white/20 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-200">
-              <span className="flex items-center gap-1 font-bold">
-                <Info className="w-4 h-4 text-amber-400 shrink-0" />
-                <span>📢 إعلان مواعيد تمارين الفريق للمتابعة والعلم</span>
-              </span>
-              {onOpenPlayerLogin && (
-                <button
-                  type="button"
-                  onClick={onOpenPlayerLogin}
-                  className="bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[11px] font-bold px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition-all active:scale-95"
-                >
-                  <KeyRound className="w-3.5 h-3.5 text-amber-400" />
-                  <span>دخول اللاعبين</span>
-                </button>
+          {/* Training Title (No text truncation) */}
+          <div className="mt-3 relative z-10 space-y-2">
+            <h3 className="font-black text-white text-base sm:text-lg leading-snug break-words text-wrap">
+              {activeTraining.title.replace(/^🇧🇹\s*/, '')}
+            </h3>
+
+            {/* Chips Row: Date & Location */}
+            <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm text-gray-200">
+              {activeTraining.date && (
+                <div className="inline-flex items-center gap-1.5 bg-black/40 px-2.5 py-1 rounded-xl border border-white/10 text-gray-200">
+                  <Calendar className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span className="font-semibold">{activeTraining.date}</span>
+                </div>
+              )}
+              {activeTraining.location && (
+                <div className="inline-flex items-center gap-1.5 bg-black/40 px-2.5 py-1 rounded-xl border border-white/10 text-gray-200">
+                  <MapPin className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span className="font-semibold">{activeTraining.location}</span>
+                </div>
               )}
             </div>
-          )}
-        </div>
+
+            {/* Full Coach Notes Box (No line clamps or truncation) */}
+            {activeTraining.note && (
+              <div className="bg-black/60 backdrop-blur-md rounded-xl p-3 sm:p-3.5 border border-amber-500/40 text-amber-100 text-xs sm:text-sm mt-2.5 space-y-1.5 break-words text-wrap shadow-inner">
+                <span className="font-black text-amber-400 flex items-center gap-1.5 text-xs">
+                  <span>📝</span>
+                  <span>توجيهات وملاحظات الجهاز الفني:</span>
+                </span>
+                <p className="leading-relaxed whitespace-pre-line break-words text-wrap text-amber-100/95 font-medium">
+                  {activeTraining.note}
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Interactive Attendance Actions / Status Section */}
+          <div className="mt-4 pt-3 border-t border-amber-500/30 relative z-10">
+            {userRole === 'player' ? (
+              hasRespondedToTraining ? (
+                /* Player Already Responded Status */
+                <div className="bg-black/50 rounded-xl p-3 border border-white/10 flex flex-wrap items-center justify-between gap-2.5">
+                  <div className="flex items-center gap-2">
+                    {isAttending ? (
+                      <>
+                        <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                        <span className="text-xs sm:text-sm font-bold text-emerald-300">
+                          ✅ تم تأكيد حضورك بنجاح في هذا التمرين
+                        </span>
+                      </>
+                    ) : isApologized ? (
+                      <>
+                        <XCircle className="w-5 h-5 text-red-400 shrink-0" />
+                        <span className="text-xs sm:text-sm font-bold text-red-300">
+                          ❌ تم تسجيل اعتذارك عن هذا التمرين
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-5 h-5 text-amber-400 shrink-0" />
+                        <span className="text-xs sm:text-sm font-bold text-amber-300">
+                          تم تسجيل موقفك في سجل التمرين
+                        </span>
+                      </>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onOpenTrainingModal()}
+                    className="text-xs bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-bold px-3 py-1.5 rounded-lg border border-amber-500/40 transition-transform active:scale-95 cursor-pointer"
+                  >
+                    تعديل الرد
+                  </button>
+                </div>
+              ) : (
+                /* Player Pending Response Buttons */
+                <div className="space-y-2">
+                  <p className="text-xs sm:text-sm text-amber-200 font-bold">
+                    ⚽ أهلاً كابتن {loggedInPlayer?.name || 'اللاعب'}: يرجى تسجيل موقفك من الحضور:
+                  </p>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <button
+                      type="button"
+                      disabled={isQuickSubmitting}
+                      onClick={handleQuickAttend}
+                      className="bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs sm:text-sm py-2.5 px-3 rounded-xl shadow-lg transition-transform active:scale-95 flex items-center justify-center gap-1.5 border border-emerald-400 cursor-pointer min-h-[44px]"
+                    >
+                      <CheckCircle2 className="w-4 h-4 text-emerald-200 shrink-0" />
+                      <span>{isQuickSubmitting ? 'جاري الحفظ...' : 'تأكيد الحضور ✅'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onOpenTrainingModal('absent')}
+                      className="bg-red-700 hover:bg-red-600 text-white font-black text-xs sm:text-sm py-2.5 px-3 rounded-xl shadow-lg transition-transform active:scale-95 flex items-center justify-center gap-1.5 border border-red-400 cursor-pointer min-h-[44px]"
+                    >
+                      <XCircle className="w-4 h-4 text-red-200 shrink-0" />
+                      <span>اعتذار عن التمرين ❌</span>
+                    </button>
+                  </div>
+                </div>
+              )
+            ) : (
+              /* Fan / Guest Mode */
+              <div className="flex flex-wrap items-center justify-between gap-2.5 text-xs text-amber-200">
+                <span className="flex items-center gap-1.5 font-bold">
+                  <Info className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>📢 إشعار رسمي خاص بلاعبي الفريق والجماهير للمتابعة</span>
+                </span>
+                {onOpenPlayerLogin && (
+                  <button
+                    type="button"
+                    onClick={onOpenPlayerLogin}
+                    className="bg-amber-500 text-black hover:bg-amber-400 font-black text-xs px-3.5 py-2 rounded-xl flex items-center gap-1.5 transition-transform active:scale-95 shadow cursor-pointer min-h-[38px]"
+                  >
+                    <KeyRound className="w-3.5 h-3.5 text-black shrink-0" />
+                    <span>دخول اللاعبين لتأكيد الحضور</span>
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
       )}
 
       {/* Featured News Carousel Banner */}

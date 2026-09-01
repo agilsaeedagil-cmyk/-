@@ -1,6 +1,6 @@
 // 🔔 خدمة إدارة الإشعارات الفورية لنظام التشغيل والمتصفح (Native Push & System Notifications)
 
-export const SALAM_ANDROID_CHANNEL_ID = 'salam_channel_id';
+export const SALAM_ANDROID_CHANNEL_ID = 'd375dad7-cf17-40a3-9cb2-10d3aacffa67';
 
 export interface AndroidChannelConfig {
   id: string;
@@ -117,7 +117,6 @@ export const enableNotificationsAndGoToSettings = async (): Promise<void> => {
       try {
         window.location.href = 'package:' + 'com.alslam.app';
       } catch {}
-      alert('يرجى الانتقال إلى إعدادات التطبيق وتفعيل خيار الإشعارات يدوياً.');
     }
   }, 1500);
 };

@@ -18,6 +18,7 @@ export const NewsView: React.FC<NewsViewProps> = ({ news: initialNews, selectedN
   const [draftRatings, setDraftRatings] = useState<{ [newsId: string]: number }>({});
   const [savingRatingId, setSavingRatingId] = useState<string | null>(null);
   const [ratedFeedback, setRatedFeedback] = useState<{ [newsId: string]: boolean }>({});
+  const [copiedToast, setCopiedToast] = useState<string | null>(null);
 
   const currentUserId = typeof localStorage !== 'undefined'
     ? localStorage.getItem('salam_device_user_id') || `user-${Date.now()}`
@@ -53,7 +54,8 @@ export const NewsView: React.FC<NewsViewProps> = ({ news: initialNews, selectedN
       if (navigator.clipboard) {
         navigator.clipboard.writeText(`${title}\n${window.location.href}`);
       }
-      alert(`تم نسخ رابط الخبر: ${title}`);
+      setCopiedToast(`تم نسخ رابط الخبر بنجاح: ${title}`);
+      setTimeout(() => setCopiedToast(null), 3500);
     }
   };
 
@@ -137,7 +139,12 @@ export const NewsView: React.FC<NewsViewProps> = ({ news: initialNews, selectedN
   };
 
   return (
-    <div className="space-y-4 pb-12 px-3 sm:px-4 text-white dir-rtl select-none">
+    <div className="space-y-4 pb-12 px-3 sm:px-4 text-white dir-rtl select-none relative">
+      {copiedToast && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-emerald-900/95 border border-emerald-400 text-white text-xs px-4 py-2.5 rounded-2xl shadow-2xl font-bold animate-in fade-in zoom-in-95">
+          {copiedToast}
+        </div>
+      )}
       {/* View Header */}
       <div className="flex items-center justify-between border-b border-red-900/40 pb-2">
         <h2 className="text-base sm:text-lg font-black text-white flex items-center gap-2">

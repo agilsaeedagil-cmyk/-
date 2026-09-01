@@ -143,7 +143,7 @@ export const AboutView: React.FC<AboutViewProps> = ({ info }) => {
           className="block w-full bg-gradient-to-r from-emerald-600 via-green-600 to-emerald-700 hover:from-emerald-500 hover:to-green-600 border border-emerald-400/50 py-2.5 rounded-xl text-xs font-black text-white flex items-center justify-center gap-2 shadow-[0_4px_15px_rgba(16,185,129,0.3)] transition-transform active:scale-95"
         >
           <span className="text-base">💬</span>
-          <span>تواصل عبر واتساب (78016303)</span>
+          <span>تواصل عبر واتساب (780163037)</span>
         </a>
 
         <p className="text-[11px] text-amber-200/80 font-bold pt-2 border-t border-blue-950">

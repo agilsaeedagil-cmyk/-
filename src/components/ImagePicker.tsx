@@ -18,9 +18,11 @@ export const ImagePicker: React.FC<ImagePickerProps> = ({
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const compressAndSetImage = (file: File) => {
     setIsLoading(true);
+    setErrorMessage(null);
     const reader = new FileReader();
     
     reader.onload = (e) => {
@@ -76,7 +78,7 @@ export const ImagePicker: React.FC<ImagePickerProps> = ({
     };
 
     reader.onerror = () => {
-      alert('حدث خطأ أثناء قراءة ملف الصورة');
+      setErrorMessage('حدث خطأ أثناء قراءة ملف الصورة');
       setIsLoading(false);
     };
 
@@ -87,7 +89,7 @@ export const ImagePicker: React.FC<ImagePickerProps> = ({
     const file = e.target.files?.[0];
     if (file) {
       if (!file.type.startsWith('image/')) {
-        alert('يرجى اختيار ملف صورة صالح (PNG, JPG, WEBP).');
+        setErrorMessage('يرجى اختيار ملف صورة صالح (PNG, JPG, WEBP).');
         return;
       }
       compressAndSetImage(file);
@@ -98,6 +100,12 @@ export const ImagePicker: React.FC<ImagePickerProps> = ({
   return (
     <div className="space-y-1.5 dir-rtl">
       <label className="block text-gray-300 font-bold text-xs">{label}</label>
+
+      {errorMessage && (
+        <div className="bg-red-950/80 border border-red-500/60 text-red-200 text-xs px-3 py-1.5 rounded-xl font-bold">
+          {errorMessage}
+        </div>
+      )}
 
       {isLoading ? (
         <div className="w-full h-28 bg-[#120a0a] rounded-2xl border-2 border-amber-500/50 flex flex-col items-center justify-center gap-2 text-amber-400">

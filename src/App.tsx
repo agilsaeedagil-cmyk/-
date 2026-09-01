@@ -20,7 +20,7 @@ import { LiveMatchTicker } from './components/LiveMatchTicker';
 import { LogoutConfirmModal } from './components/LogoutConfirmModal';
 import { TeamGalleryView } from './components/TeamGalleryView';
 import { apiService, getLocalCache, getDeletedIds, recordDeletedNotification, recordDeletedTrainingSession } from './services/api';
-import { requestNotificationPermission, showSystemNotification } from './services/notificationService';
+import { requestNotificationPermission, showSystemNotification, playNotificationSound } from './services/notificationService';
 import { Match, NewsItem, Player, TrainingSession, AppNotification, ClubStats, ClubInfo, StoreProduct, StoreSettings, AttendanceResponse } from './types';
 import { initialClubInfo, initialClubStats, initialMatches, initialNews, initialNotifications, initialPlayers, initialTrainingSessions, initialStoreProducts, initialStoreSettings } from './data/initialData';
 
@@ -119,6 +119,7 @@ export default function App() {
 
   const initialNotifsLoadedRef = useRef(false);
   const knownNotifsSetRef = useRef<Set<string>>(new Set());
+  const pendingTrainingDeepLinkRef = useRef<{ sessionId?: string; choice?: 'attend' | 'absent' } | null>(null);
 
   // دالة تفعيل الإشعارات عبر OneSignal وتوجيه المستخدم لإعدادات التطبيق في أندرويد لتمكين خيار "عرض على الشاشة" (Pop on screen)
   const enableNotificationsAndGoToSettings = async () => {
@@ -158,7 +159,6 @@ export default function App() {
         try {
           window.location.href = 'package:' + 'com.alslam.app';
         } catch {}
-        alert('يرجى الانتقال إلى إعدادات التطبيق وتفعيل خيار الإشعارات يدوياً.');
       }
     }, 1500);
   };
@@ -213,12 +213,35 @@ export default function App() {
     }
   };
 
-  // Automatically pick the latest unread/undismissed notification for floating toast
+  // Automatically pick the latest unread/undismissed notification for floating Heads-Up banner (Excluding training sessions)
+  const lastAlertedNotifIdRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (notifications.length > 0) {
-      const latest = notifications.find((n) => !dismissedToastIds.includes(n.id));
+      // إيقاف ظهور إشعارات التمارين كبنر عائم منبثق داخل التطبيق، والاعتماد فقط على وصولها في مركز الإشعارات أو قسم التمارين
+      const latest = notifications.find((n) => 
+        !dismissedToastIds.includes(n.id) && 
+        n.type !== 'training' && 
+        !n.trainingSessionId
+      );
       if (latest && latest !== activeToastNotif) {
         setActiveToastNotif(latest);
+        if (lastAlertedNotifIdRef.current !== latest.id) {
+          lastAlertedNotifIdRef.current = latest.id;
+          playNotificationSound();
+          if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+            try {
+              navigator.vibrate([250, 100, 250]);
+            } catch {}
+          }
+          if (typeof document !== 'undefined' && document.hidden) {
+            showSystemNotification(latest.title, {
+              body: latest.message,
+              icon: '/logo-salam.png',
+              data: latest,
+            });
+          }
+        }
       } else if (!latest) {
         setActiveToastNotif(null);
       }
@@ -293,22 +316,32 @@ export default function App() {
             try {
               window.history.replaceState({}, document.title, window.location.pathname);
             } catch {}
-          } else if (screenParam === 'training_confirm' || screenParam === 'training' || trainingSessionId) {
-            console.log("📲 [DeepLink] Detected notification deep link to Training Confirmation:", trainingSessionId, actionParam);
+          } else if (screenParam === 'training_confirm' || screenParam === 'training' || screenParam === 'home' || trainingSessionId || actionParam) {
+            console.log("📲 [DeepLink] Detected notification deep link to Training:", trainingSessionId, actionParam);
             setShowWelcome(false);
             setActiveTab('home');
 
-            if (actionParam === 'confirm' || actionParam === 'attend') {
+            let choice: 'attend' | 'absent' | null = null;
+            if (actionParam === 'confirm' || actionParam === 'attend' || actionParam === 'confirm_attendance') {
+              choice = 'attend';
               setTrainingModalInitialChoice('attend');
-            } else if (actionParam === 'apologize' || actionParam === 'absent') {
+            } else if (actionParam === 'apologize' || actionParam === 'absent' || actionParam === 'apologize_attendance') {
+              choice = 'absent';
               setTrainingModalInitialChoice('absent');
             }
 
-            // Find matching training session or use cached/active training
-            const cachedTrainings = getLocalCache<TrainingSession[]>('trainings', []);
-            const targetSession = (trainingSessionId ? cachedTrainings.find((t) => t.id === trainingSessionId) : null) || cachedTrainings[0];
-            if (targetSession) {
-              setActiveTrainingModal(targetSession);
+            if (choice) {
+              const cachedTrainings = getLocalCache<TrainingSession[]>('trainings', []);
+              const targetSession = (trainingSessionId ? cachedTrainings.find((t) => t.id === trainingSessionId) : null) || cachedTrainings[0];
+              if (targetSession) {
+                setActiveTrainingModal(targetSession);
+              } else {
+                pendingTrainingDeepLinkRef.current = { sessionId: trainingSessionId || undefined, choice: choice || undefined };
+              }
+            } else {
+              setTimeout(() => {
+                document.getElementById('training-session-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              }, 400);
             }
             try {
               window.history.replaceState({}, document.title, window.location.pathname);
@@ -338,20 +371,31 @@ export default function App() {
           if (gPostId) {
             setTargetGalleryPostId(gPostId);
           }
-        } else if (targetScreen === 'training_confirm' || tSessionId || notifData.type === 'training') {
+        } else if (targetScreen === 'training_confirm' || targetScreen === 'home' || tSessionId || notifData.type === 'training' || actionParam) {
           setShowWelcome(false);
           setActiveTab('home');
 
-          if (actionParam === 'confirm' || actionParam === 'attend') {
+          let choice: 'attend' | 'absent' | null = null;
+          if (actionParam === 'confirm' || actionParam === 'attend' || actionParam === 'confirm_attendance') {
+            choice = 'attend';
             setTrainingModalInitialChoice('attend');
-          } else if (actionParam === 'apologize' || actionParam === 'absent') {
+          } else if (actionParam === 'apologize' || actionParam === 'absent' || actionParam === 'apologize_attendance') {
+            choice = 'absent';
             setTrainingModalInitialChoice('absent');
           }
 
-          const cachedTrainings = getLocalCache<TrainingSession[]>('trainings', []);
-          const targetSession = (tSessionId ? cachedTrainings.find((t) => t.id === tSessionId) : null) || cachedTrainings[0];
-          if (targetSession) {
-            setActiveTrainingModal(targetSession);
+          if (choice) {
+            const cachedTrainings = getLocalCache<TrainingSession[]>('trainings', []);
+            const targetSession = (tSessionId ? cachedTrainings.find((t) => t.id === tSessionId) : null) || cachedTrainings[0];
+            if (targetSession) {
+              setActiveTrainingModal(targetSession);
+            } else {
+              pendingTrainingDeepLinkRef.current = { sessionId: tSessionId || undefined, choice: choice || undefined };
+            }
+          } else {
+            setTimeout(() => {
+              document.getElementById('training-session-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 400);
           }
         }
       }
@@ -379,19 +423,30 @@ export default function App() {
             if (gPostId) {
               setTargetGalleryPostId(gPostId);
             }
-          } else if (deepLink === 'training_confirm' || tSessionId || additionalData?.type === 'training') {
+          } else if (deepLink === 'training_confirm' || deepLink === 'home' || tSessionId || additionalData?.type === 'training' || actionParam) {
             setShowWelcome(false);
             setActiveTab('home');
+            let choice: 'attend' | 'absent' | null = null;
             if (actionParam === 'confirm_attendance' || actionParam === 'confirm' || actionParam === 'attend') {
+              choice = 'attend';
               setTrainingModalInitialChoice('attend');
             } else if (actionParam === 'apologize_attendance' || actionParam === 'apologize' || actionParam === 'absent') {
+              choice = 'absent';
               setTrainingModalInitialChoice('absent');
             }
 
-            const cachedTrainings = getLocalCache<TrainingSession[]>('trainings', []);
-            const targetSession = (tSessionId ? cachedTrainings.find((t) => t.id === tSessionId) : null) || cachedTrainings[0];
-            if (targetSession) {
-              setActiveTrainingModal(targetSession);
+            if (choice) {
+              const cachedTrainings = getLocalCache<TrainingSession[]>('trainings', []);
+              const targetSession = (tSessionId ? cachedTrainings.find((t) => t.id === tSessionId) : null) || cachedTrainings[0];
+              if (targetSession) {
+                setActiveTrainingModal(targetSession);
+              } else {
+                pendingTrainingDeepLinkRef.current = { sessionId: tSessionId || undefined, choice: choice || undefined };
+              }
+            } else {
+              setTimeout(() => {
+                document.getElementById('training-session-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              }, 400);
             }
           }
         });
@@ -417,19 +472,30 @@ export default function App() {
             if (gPostId) {
               setTargetGalleryPostId(gPostId);
             }
-          } else if (deepLink === 'training_confirm' || tSessionId || customData.type === 'training') {
+          } else if (deepLink === 'training_confirm' || deepLink === 'home' || tSessionId || customData.type === 'training' || actionParam) {
             setShowWelcome(false);
             setActiveTab('home');
+            let choice: 'attend' | 'absent' | null = null;
             if (actionParam === 'confirm_attendance' || actionParam === 'confirm' || actionParam === 'attend') {
+              choice = 'attend';
               setTrainingModalInitialChoice('attend');
             } else if (actionParam === 'apologize_attendance' || actionParam === 'apologize' || actionParam === 'absent') {
+              choice = 'absent';
               setTrainingModalInitialChoice('absent');
             }
 
-            const cachedTrainings = getLocalCache<TrainingSession[]>('trainings', []);
-            const targetSession = (tSessionId ? cachedTrainings.find((t) => t.id === tSessionId) : null) || cachedTrainings[0];
-            if (targetSession) {
-              setActiveTrainingModal(targetSession);
+            if (choice) {
+              const cachedTrainings = getLocalCache<TrainingSession[]>('trainings', []);
+              const targetSession = (tSessionId ? cachedTrainings.find((t) => t.id === tSessionId) : null) || cachedTrainings[0];
+              if (targetSession) {
+                setActiveTrainingModal(targetSession);
+              } else {
+                pendingTrainingDeepLinkRef.current = { sessionId: tSessionId || undefined, choice: choice || undefined };
+              }
+            } else {
+              setTimeout(() => {
+                document.getElementById('training-session-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              }, 400);
             }
           }
         }
@@ -501,11 +567,25 @@ export default function App() {
         const trainDeleted = getDeletedIds('training_sessions');
         const notifDeleted = getDeletedIds('notifications');
         const exSet = new Set([...trainDeleted, ...notifDeleted, 'train-1', 'notif-1']);
-        setTrainingSessions(fetchedTrainings.filter((t) => {
+        const validTrainings = fetchedTrainings.filter((t) => {
           if (!t || !t.id) return false;
           const tid = String(t.id).trim();
           return !exSet.has(tid);
-        }));
+        });
+        setTrainingSessions(validTrainings);
+
+        // إذا كان هناك نقر على إشعار ينتظر تحميل جلسة التمرين
+        if (pendingTrainingDeepLinkRef.current) {
+          const { sessionId, choice } = pendingTrainingDeepLinkRef.current;
+          const targetSession = (sessionId ? validTrainings.find((t) => t.id === sessionId) : null) || validTrainings[0];
+          if (targetSession) {
+            setShowWelcome(false);
+            setActiveTab('home');
+            setActiveTrainingModal(targetSession);
+            if (choice) setTrainingModalInitialChoice(choice);
+            pendingTrainingDeepLinkRef.current = null;
+          }
+        }
       } catch {
         setTrainingSessions(fetchedTrainings);
       }
@@ -795,46 +875,51 @@ export default function App() {
               </div>
             )}
 
-            {/* Top Floating Active Toast Notification Banner with Dismiss X Button */}
-            {activeToastNotif && (
-              <div dir="rtl" className="bg-gradient-to-r from-[#2c0808] via-[#1a0808] to-[#2c0808] border-b-2 border-amber-500/80 px-4 py-3 shadow-2xl text-white flex items-start justify-between gap-3 z-30 animate-in slide-in-from-top duration-300">
-                <div className="flex items-start gap-3 flex-1 min-w-0">
-                  <div className="p-1 rounded-full bg-amber-500/20 border border-amber-400/40 shrink-0 mt-0.5">
-                    <Logo size={26} />
-                  </div>
-                  <div className="space-y-1 min-w-0 flex-1">
-                    <div className="flex items-center flex-wrap gap-2">
-                      <div dir="rtl" className="flex items-center gap-1.5 min-w-0 flex-1 text-right">
-                        <span className="text-sm shrink-0">🇧🇹</span>
-                        <span className="text-sm font-black text-amber-300 break-words text-wrap">{activeToastNotif.title.replace(/^🇧🇹\s*/, '')}</span>
-                      </div>
-                      <span dir="rtl" className="text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-md font-bold shrink-0 inline-flex items-center gap-1 text-right">
-                        {activeToastNotif.type === 'training' ? (
-                          <>
-                            <span className="shrink-0">🇧🇹</span>
-                            <span>إشعار تمرين</span>
-                          </>
-                        ) : (
-                          '📢 إشعار'
-                        )}
-                      </span>
+            {/* Top Floating Active Heads-Up Notification Banner (For Non-Training Broadcasts) */}
+            {activeToastNotif && activeToastNotif.type !== 'training' && !activeToastNotif.trainingSessionId && (
+              <div
+                dir="rtl"
+                className="fixed top-3 inset-x-3 sm:inset-x-auto sm:right-4 sm:max-w-md z-50 bg-gradient-to-r from-[#2c0808]/95 via-[#1a0808]/95 to-[#2c0808]/95 border-2 border-amber-500/80 backdrop-blur-xl px-4 py-3 rounded-2xl shadow-[0_10px_35px_rgba(0,0,0,0.8)] text-white flex flex-col gap-2.5 animate-in slide-in-from-top-4 duration-300 ring-1 ring-amber-400/30"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                    <div className="p-1.5 rounded-xl bg-amber-500/20 border border-amber-400/40 shrink-0 mt-0.5 shadow-sm">
+                      <Logo size={24} />
                     </div>
-                    <p className="text-xs text-gray-200 break-words text-wrap leading-relaxed whitespace-pre-line">{activeToastNotif.message}</p>
+                    <div className="space-y-1 min-w-0 flex-1">
+                      <div className="flex items-center flex-wrap gap-1.5">
+                        <span className="text-sm font-black text-amber-300 break-words text-wrap">
+                          {activeToastNotif.title.replace(/^🇧🇹\s*/, '')}
+                        </span>
+                        <span className="text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full font-bold shrink-0 inline-flex items-center gap-1 border border-amber-500/30">
+                          {activeToastNotif.type === 'match' ? '⚽ إشعار مباراة' : activeToastNotif.type === 'gallery' ? '📸 إشعار معرض' : '📢 إشعار رسمي'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-200 break-words text-wrap leading-relaxed whitespace-pre-line">
+                        {activeToastNotif.message}
+                      </p>
+                    </div>
                   </div>
-                </div>
 
-                <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
                   <button
                     type="button"
                     onClick={() => {
-                      const isTraining = activeToastNotif.type === 'training' || Boolean(activeToastNotif.trainingSessionId);
-                      if (isTraining) {
-                        const sId = activeToastNotif.trainingSessionId;
-                        const matchingSession = (sId ? trainingSessions.find((t) => t.id === sId) : null) || activeTraining || trainingSessions[0];
-                        if (matchingSession) {
-                          setActiveTrainingModal(matchingSession);
-                        }
-                      } else if (activeToastNotif.type === 'gallery' || activeToastNotif.galleryPostId || activeToastNotif.deepLink === 'gallery') {
+                      handleDeleteNotification(activeToastNotif.id);
+                    }}
+                    className="p-1 rounded-full bg-black/60 hover:bg-red-950 text-gray-400 hover:text-red-300 border border-white/10 hover:border-red-500/50 transition-all shrink-0 active:scale-90"
+                    title="إغلاق الإشعار"
+                    aria-label="إغلاق الإشعار"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Quick Action Buttons */}
+                <div className="flex items-center justify-end gap-2 pt-1 border-t border-white/10">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (activeToastNotif.type === 'gallery' || activeToastNotif.galleryPostId || activeToastNotif.deepLink === 'gallery') {
                         setActiveTab('gallery');
                         if (activeToastNotif.galleryPostId) {
                           setTargetGalleryPostId(activeToastNotif.galleryPostId);
@@ -844,20 +929,9 @@ export default function App() {
                       }
                       setDismissedToastIds((prev) => [...prev, activeToastNotif.id]);
                     }}
-                    className="text-xs bg-amber-500 text-black font-extrabold px-2.5 py-1 rounded-lg hover:bg-amber-400 transition-all active:scale-95 shadow"
+                    className="text-xs bg-amber-500 text-black font-extrabold px-4 py-1.5 rounded-xl hover:bg-amber-400 transition-all active:scale-95 shadow cursor-pointer"
                   >
-                    عرض
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      handleDeleteNotification(activeToastNotif.id);
-                    }}
-                    className="p-1.5 rounded-full bg-black/60 hover:bg-black/90 text-red-300 border border-red-500/40 transition-transform active:scale-90"
-                    title="حذف وإلغاء الإشعار نهائياً"
-                    aria-label="حذف وإلغاء الإشعار نهائياً"
-                  >
-                    <X className="w-4 h-4" />
+                    عرض المحتوى
                   </button>
                 </div>
               </div>

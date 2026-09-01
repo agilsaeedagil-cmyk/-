@@ -185,6 +185,10 @@ self.addEventListener('push', (event) => {
   const title = data.title.startsWith('🇧🇹') ? data.title : `🇧🇹 ${data.title}`;
   const notifPayload = data.data || {};
   const isTraining = notifPayload.type === 'training' || Boolean(notifPayload.trainingSessionId);
+  const origin = self.location.origin || '';
+  const fullLogoUrl = data.icon && data.icon.startsWith('http') ? data.icon : `${origin}/logo-salam.png`;
+  const fullBadgeUrl = data.badge && data.badge.startsWith('http') ? data.badge : `${origin}/logo-salam.png`;
+  const fullImageUrl = data.image && data.image.startsWith('http') ? data.image : (notifPayload.image || null);
 
   let defaultActions = [
     { action: 'open', title: 'فتح التطبيق' },
@@ -201,15 +205,17 @@ self.addEventListener('push', (event) => {
 
   const options = {
     body: data.body,
-    icon: data.icon || '/logo-salam.png',
-    badge: data.badge || '/logo-salam.png',
+    icon: fullLogoUrl,
+    badge: fullBadgeUrl,
+    image: fullImageUrl || undefined,
     dir: 'rtl',
     lang: 'ar',
-    vibrate: [250, 100, 250, 100, 250],
-    tag: data.tag || (isTraining ? 'salam_training_channel' : 'salam_channel_id'),
+    vibrate: [300, 100, 300, 100, 300],
+    tag: data.tag || (isTraining ? 'salam_training_channel' : 'd375dad7-cf17-40a3-9cb2-10d3aacffa67'),
     renotify: true,
     requireInteraction: true,
-    data: { ...(data.data || {}), channelId: 'salam_channel_id' },
+    silent: false,
+    data: { ...(data.data || {}), channelId: 'd375dad7-cf17-40a3-9cb2-10d3aacffa67' },
     actions: defaultActions
   };
 
@@ -279,12 +285,15 @@ self.addEventListener('notificationclick', (event) => {
   let targetScreen = 'home';
 
   if (isTraining) {
-    targetScreen = 'training_confirm';
-    targetUrl = `/?screen=training_confirm&trainingSessionId=${encodeURIComponent(trainingSessionId)}${actionParam ? `&action=${actionParam}` : ''}`;
+    targetScreen = 'home';
+    targetUrl = `/?screen=home&trainingSessionId=${encodeURIComponent(trainingSessionId)}${actionParam ? `&action=${actionParam}` : ''}`;
   } else if (isGallery) {
     targetScreen = 'gallery';
-    targetUrl = `/?screen=gallery&postId=${encodeURIComponent(galleryPostId)}`;
+    targetUrl = `/?screen=gallery${galleryPostId ? `&galleryPostId=${encodeURIComponent(galleryPostId)}` : ''}`;
   }
+
+  // ضمان إنشاء رابط كامل وموثوق يتبع نطاق التطبيق الفعلي
+  const absoluteAppUrl = new URL(targetUrl, self.location.origin).href;
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
@@ -302,9 +311,9 @@ self.addEventListener('notificationclick', (event) => {
           return client.focus();
         }
       }
-      // إذا كان التطبيق مغلقاً تماماً، يتم فتحه مع معلمات التوجيه المباشر
+      // إذا كان التطبيق مغلقاً تماماً، يتم فتحه في واجهة التطبيق مباشرة
       if (self.clients.openWindow) {
-        return self.clients.openWindow(targetUrl);
+        return self.clients.openWindow(absoluteAppUrl);
       }
     })
   );

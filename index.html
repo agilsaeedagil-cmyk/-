@@ -24,10 +24,10 @@
   <body class="bg-[#0c0707] text-white selection:bg-red-600 selection:text-white overscroll-none">
     <div id="root"></div>
     <script>
-      // 🚀 دالة إنشاء قناة أندرويد الرسمية (salam_channel_id) برمجياً عبر Median Native Bridge
+      // 🚀 دالة إنشاء قناة أندرويد الرسمية (d375dad7-cf17-40a3-9cb2-10d3aacffa67) برمجياً عبر Median Native Bridge
       function createSalamAndroidChannel() {
         var channelConfig = {
-          id: 'salam_channel_id',
+          id: 'd375dad7-cf17-40a3-9cb2-10d3aacffa67',
           name: 'إشعارات نادي السلام الرسمية',
           description: 'إشعارات التمارين والمباريات والأخبار العاجلة لنادي السلام',
           importance: 4, // IMPORTANCE_HIGH (Heads-up banner)
@@ -100,6 +100,26 @@
             }
           }
         });
+
+        // 🔒 ضمان فتح جميع الروابط والإشعارات داخل التطبيق حصرياً ومنع فتح المتصفح الخارجي
+        try {
+          if (window.median && window.median.internalExternal && typeof window.median.internalExternal.setRules === 'function') {
+            window.median.internalExternal.setRules({
+              rules: [
+                { regex: '.*', internal: true }
+              ]
+            });
+          }
+          if (window.gonative && window.gonative.internalExternal && typeof window.gonative.internalExternal.setRules === 'function') {
+            window.gonative.internalExternal.setRules({
+              rules: [
+                { regex: '.*', internal: true }
+              ]
+            });
+          }
+        } catch (linkErr) {
+          console.warn("Median internal link config notice:", linkErr);
+        }
 
         checkAndSendMedianToken();
         setTimeout(checkAndSendMedianToken, 1000);

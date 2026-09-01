@@ -334,10 +334,23 @@ export async function deleteCentralizedDocument(
 
   // حذف المستند من Firestore
   try {
-    await deleteDoc(doc(db, collectionName, cleanId));
+    await deleteDoc(doc(db, collectionName, cleanId)).catch(() => {});
     if (collectionName.includes('_')) {
       await deleteDoc(doc(db, collectionName.replace(/_/g, '-'), cleanId)).catch(() => {});
     }
+    if (collectionName.includes('-')) {
+      await deleteDoc(doc(db, collectionName.replace(/-/g, '_'), cleanId)).catch(() => {});
+    }
+
+    // بحث وحذف أي مستندات تحتوي على الحقل id مطابق للمعرف
+    try {
+      const qById = query(collection(db, collectionName), where('id', '==', cleanId));
+      const qSnap = await getDocs(qById);
+      qSnap.forEach((dSnap) => {
+        deleteDoc(doc(db, collectionName, dSnap.id)).catch(() => {});
+      });
+    } catch {}
+
     console.log(`✅ [Centralized Delete] Deleted doc '${cleanId}' from Firestore collection '${collectionName}'`);
   } catch (err) {
     console.error(`❌ [Centralized Delete] Firestore delete error:`, err);
@@ -1335,6 +1348,24 @@ export const apiService = {
       ));
     } catch {}
 
+    // Delete related attendance responses in Firestore
+    try {
+      const qResp = query(collection(db, 'attendance_responses'), where('sessionId', '==', sId));
+      const qSnap = await getDocs(qResp);
+      qSnap.forEach((dSnap) => {
+        deleteDoc(doc(db, 'attendance_responses', dSnap.id)).catch(() => {});
+      });
+    } catch {}
+
+    // Delete related notifications query in Firestore
+    try {
+      const qNotifs = query(collection(db, 'notifications'), where('trainingSessionId', '==', sId));
+      const nSnap = await getDocs(qNotifs);
+      nSnap.forEach((dSnap) => {
+        deleteDoc(doc(db, 'notifications', dSnap.id)).catch(() => {});
+      });
+    } catch {}
+
     // Also purge Express API
     try {
       await fetch(`${API_BASE}/training-sessions/${sId}`, { method: 'DELETE' });
@@ -1875,6 +1906,17 @@ export const apiService = {
       const currentTrainings = getLocalCache<TrainingSession[]>('trainings', []);
       saveLocalCache('trainings', currentTrainings.filter(t => String(t.id).trim() !== sessionId && String(t.id).trim() !== 'train-1'));
       deleteCentralizedDocument('training_sessions', sessionId).catch(() => {});
+      deleteCentralizedDocument('training-sessions', sessionId).catch(() => {});
+
+      // Delete related attendance responses in Firestore
+      try {
+        const qResp = query(collection(db, 'attendance_responses'), where('sessionId', '==', sessionId));
+        const qSnap = await getDocs(qResp);
+        qSnap.forEach((dSnap) => {
+          deleteDoc(doc(db, 'attendance_responses', dSnap.id)).catch(() => {});
+        });
+      } catch {}
+
       try {
         await fetch(`${API_BASE}/training-sessions/${sessionId}`, { method: 'DELETE' });
         await fetch(`${API_BASE}/training_sessions/${sessionId}`, { method: 'DELETE' });
@@ -3065,3 +3107,72 @@ export const apiService = {
     }
   }
 };
+
+/**
+ * 🧹 تنظيف وحذف كافة الإشعارات أو بيانات التمارين الوهمية/التجريبية القديمة نهائياً لتبدأ بنظافة تامة
+ */
+export async function cleanupMockAndFakeTrainingData(): Promise<void> {
+  const fakeKeywords = ['تمرين ياشباب', 'ملعب السلام بكثيبة', 'اختبار', 'notif-1', 'train-1', 'ts-1', 'session-real-test-1'];
+  
+  // 1. Scan and clean Firestore 'notifications'
+  try {
+    const notifSnap = await getDocs(collection(db, 'notifications')).catch(() => null);
+    if (notifSnap) {
+      notifSnap.forEach((docSnap) => {
+        const data = docSnap.data();
+        const docId = docSnap.id;
+        const text = `${data?.title || ''} ${data?.message || ''} ${docId} ${data?.trainingSessionId || ''}`.toLowerCase();
+        const isFake = fakeKeywords.some(k => text.includes(k.toLowerCase())) || docId === 'notif-1' || docId === 'train-1' || docId === 'session-real-test-1';
+        if (isFake) {
+          deleteDoc(doc(db, 'notifications', docId)).catch(() => {});
+          recordDeletedNotification(docId, data?.trainingSessionId);
+        }
+      });
+    }
+  } catch {}
+
+  // 2. Scan and clean Firestore 'training_sessions'
+  try {
+    const trainSnap = await getDocs(collection(db, 'training_sessions')).catch(() => null);
+    if (trainSnap) {
+      trainSnap.forEach((docSnap) => {
+        const data = docSnap.data();
+        const docId = docSnap.id;
+        const text = `${data?.title || ''} ${data?.location || ''} ${data?.note || ''} ${docId}`.toLowerCase();
+        const isFake = fakeKeywords.some(k => text.includes(k.toLowerCase())) || docId === 'train-1' || docId === 'ts-1' || docId === 'session-real-test-1';
+        if (isFake) {
+          deleteDoc(doc(db, 'training_sessions', docId)).catch(() => {});
+          recordDeletedTrainingSession(docId);
+        }
+      });
+    }
+  } catch {}
+
+  // 3. Scan and clean Firestore 'attendance_responses' for dummy sessions
+  try {
+    const respSnap = await getDocs(collection(db, 'attendance_responses')).catch(() => null);
+    if (respSnap) {
+      respSnap.forEach((docSnap) => {
+        const data = docSnap.data();
+        const docId = docSnap.id;
+        const sId = String(data?.sessionId || '');
+        if (sId === 'train-1' || sId === 'ts-1' || sId === 'session-real-test-1') {
+          deleteDoc(doc(db, 'attendance_responses', docId)).catch(() => {});
+        }
+      });
+    }
+  } catch {}
+
+  // 4. Request server cleanup
+  try {
+    await fetch(`${API_BASE}/cleanup-mock-data`, { method: 'POST' }).catch(() => {});
+  } catch {}
+}
+
+// Auto-run cleanup on initialization
+if (typeof window !== 'undefined') {
+  setTimeout(() => {
+    cleanupMockAndFakeTrainingData().catch(() => {});
+  }, 1000);
+}
+

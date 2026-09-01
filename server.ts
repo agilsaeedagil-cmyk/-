@@ -775,8 +775,36 @@ async function startServer() {
 
     if (sId) {
       trainingStore = trainingStore.filter((t) => String(t.id).trim() !== sId && String(t.id).trim() !== 'train-1');
+      attendanceStore = attendanceStore.filter((r) => String(r.sessionId).trim() !== sId && String(r.sessionId).trim() !== 'train-1');
     }
     res.json({ success: true, deletedId: cleanId });
+  });
+
+  // Comprehensive Cleanup of Mock / Test / Placeholder Data
+  app.post('/api/cleanup-mock-data', (req, res) => {
+    const fakeKeywords = ['تمرين ياشباب', 'ملعب السلام بكثيبة', 'اختبار', 'notif-1', 'train-1', 'ts-1', 'session-real-test-1', 'test'];
+    
+    notificationStore = notificationStore.filter(n => {
+      const text = `${n.title || ''} ${n.message || ''} ${n.id} ${n.trainingSessionId || ''}`.toLowerCase();
+      const isFake = fakeKeywords.some(k => text.includes(k.toLowerCase())) || n.id === 'notif-1' || n.id === 'train-1';
+      return !isFake;
+    });
+
+    trainingStore = trainingStore.filter(t => {
+      const text = `${t.title || ''} ${t.location || ''} ${t.note || ''} ${t.id}`.toLowerCase();
+      const isFake = fakeKeywords.some(k => text.includes(k.toLowerCase())) || t.id === 'train-1' || t.id === 'ts-1';
+      return !isFake;
+    });
+
+    attendanceStore = attendanceStore.filter(r => {
+      return r.sessionId !== 'train-1' && r.sessionId !== 'ts-1' && r.sessionId !== 'session-real-test-1';
+    });
+
+    res.json({
+      success: true,
+      remainingNotifications: notificationStore.length,
+      remainingTrainings: trainingStore.length,
+    });
   });
 
   // ==========================================
@@ -792,15 +820,37 @@ async function startServer() {
     apiKey: process.env.ONESIGNAL_REST_API_KEY || process.env.REST_API_KEY || process.env.ONESIGNAL_API_KEY || '',
   };
 
+  // Helper to resolve the correct full absolute Application Origin URL
+  const DEFAULT_APP_ORIGIN = 'https://ais-dev-xe7fntsxyy6sunhjo7myoo-601184627383.europe-west1.run.app';
+
+  function getAppOrigin(): string {
+    if (process.env.APP_URL) {
+      return process.env.APP_URL.replace(/\/$/, '');
+    }
+    return DEFAULT_APP_ORIGIN;
+  }
+
+  function resolveAppUrl(relativeOrAbsoluteUrl?: string, baseOrigin?: string): string {
+    const origin = (baseOrigin || getAppOrigin()).replace(/\/$/, '');
+    if (!relativeOrAbsoluteUrl) return `${origin}/`;
+    if (relativeOrAbsoluteUrl.startsWith('http://') || relativeOrAbsoluteUrl.startsWith('https://')) {
+      return relativeOrAbsoluteUrl;
+    }
+    const cleanPath = relativeOrAbsoluteUrl.startsWith('/') ? relativeOrAbsoluteUrl : `/${relativeOrAbsoluteUrl}`;
+    return `${origin}${cleanPath}`;
+  }
+
   /**
    * 📲 دالة إرسال طلب POST حقيقي إلى OneSignal API (https://onesignal.com/api/v1/notifications)
-   * مع طباعة كامل التفاصيل والردود في الـ Console لمعرفة أي سبب للرفض أو النجاح
+   * مع توجيه دقيق لأزرار التفاعل والإشعارات لفتح واجهة التطبيق مباشرة وليس أي صفحة خارجية
    */
   async function sendOneSignalNotification(options: {
     title: string;
     message: string;
     url?: string;
+    origin?: string;
     data?: Record<string, any>;
+    android_channel_id?: string;
     playerIds?: string[];
     segments?: string[];
     buttons?: Array<{ id: string; text: string; icon?: string }>;
@@ -847,29 +897,65 @@ async function startServer() {
       });
     }
 
+    const appOrigin = options.origin ? options.origin.replace(/\/$/, '') : getAppOrigin();
     const isTraining = options.data?.type === 'training' || Boolean(options.data?.trainingSessionId);
     const trainingSessionId = options.data?.trainingSessionId || '';
+    const isGallery = options.data?.type === 'gallery' || Boolean(options.data?.galleryPostId);
+    const galleryPostId = options.data?.galleryPostId || '';
 
-    // تجهيز الحمولة (Payload) المطابقة للمواصفات الرسمية لـ OneSignal API v1
+    // معرف قناة الإشعارات العاجلة الرسمية لنادي السلام بكثيبة المسجلة في OneSignal Dashboard
+    const SALAM_ONESIGNAL_CHANNEL_ID = 'd375dad7-cf17-40a3-9cb2-10d3aacffa67';
+
+    // توجيه الإشعار الافتراضي مباشرة إلى واجهة التطبيق داخل تطبيق Median حصرياً
+    let defaultTargetUrl = resolveAppUrl(options.url || '/', appOrigin);
+    if (isTraining) {
+      defaultTargetUrl = resolveAppUrl(`/?screen=home&trainingSessionId=${encodeURIComponent(trainingSessionId)}`, appOrigin);
+    } else if (isGallery) {
+      defaultTargetUrl = resolveAppUrl(`/?screen=gallery${galleryPostId ? `&galleryPostId=${encodeURIComponent(galleryPostId)}` : ''}`, appOrigin);
+    }
+
+    const targetUrl = options.url ? resolveAppUrl(options.url, appOrigin) : defaultTargetUrl;
+
+    // تجهيز الحمولة (Payload) المطابقة للمواصفات الرسمية لـ OneSignal API v1 مع توجيه قطعي لواجهة التطبيق
     const payload: Record<string, any> = {
       app_id: appId,
       headings: { ar: options.title, en: options.title },
       contents: { ar: options.message, en: options.message },
+      // 🚀 ربط معرف القناة الرسمي حصرياً لإظهار البنر المنبثق العائم (Heads-Up Pop-up & High Importance)
+      android_channel_id: options.android_channel_id || options.data?.android_channel_id || SALAM_ONESIGNAL_CHANNEL_ID,
+      url: targetUrl,
       data: {
         ...(options.data || {}),
-        android_channel_id: 'salam_channel_id',
+        android_channel_id: SALAM_ONESIGNAL_CHANNEL_ID,
+        targetUrl,
+        screen: isTraining ? 'home' : (isGallery ? 'gallery' : (options.data?.screen || undefined)),
+        deepLink: isTraining ? 'home' : (isGallery ? 'gallery' : (options.data?.deepLink || undefined)),
+        trainingSessionId: trainingSessionId || undefined,
+        galleryPostId: galleryPostId || undefined,
       },
-      // 🚀 إعدادات أندرويد الرسمية للأولوية القصوى والبنر العائم (Heads-up / High Importance)
+      // 🚀 إعدادات أندرويد و iOS و Web الرسمية للأولوية القصوى والبنر العائم (Heads-up / High Importance)
       priority: 10,
-      android_channel_id: options.data?.android_channel_id || 'salam_channel_id',
-      android_visibility: 1, // إظهار كامل على شاشة القفل
+      android_sound: 'notification',
+      ios_sound: 'default',
+      ios_badgeType: 'Increase',
+      ios_badgeCount: 1,
+      android_visibility: 1, // إظهار كامل على شاشة القفل (Heads-up)
       android_accent_color: 'FFD70000', // لون النادي الأحمر
       small_icon: 'ic_stat_onesignal_default',
-      large_icon: 'https://ais-dev-xe7fntsxyy6sunhjo7myoo-601184627383.europe-west1.run.app/logo-salam.png',
+      large_icon: `${appOrigin}/logo-salam.png`,
+      chrome_web_icon: `${appOrigin}/logo-salam.png`,
+      chrome_web_badge: `${appOrigin}/logo-salam.png`,
+      firefox_icon: `${appOrigin}/logo-salam.png`,
+      content_available: true,
+      mutable_content: true,
+      ttl: 259200,
     };
 
-    // أزرار التفاعل المباشرة لإشعارات التمارين (Interactive Action Buttons للاعبين)
+    // أزرار التفاعل المباشرة لإشعارات التمارين (Interactive Action Buttons للاعبين) تفتح واجهة التطبيق مباشرة
     if (isTraining) {
+      const confirmAppUrl = resolveAppUrl(`/?screen=home&action=confirm&trainingSessionId=${encodeURIComponent(trainingSessionId)}`, appOrigin);
+      const apologizeAppUrl = resolveAppUrl(`/?screen=home&action=apologize&trainingSessionId=${encodeURIComponent(trainingSessionId)}`, appOrigin);
+
       const defaultButtons = [
         { id: 'confirm_attendance', text: '✅ تأكيد الحضور' },
         { id: 'apologize_attendance', text: '❌ اعتذار' },
@@ -878,29 +964,28 @@ async function startServer() {
         {
           id: 'confirm_attendance',
           text: '✅ تأكيد الحضور',
-          url: `/?screen=training_confirm&action=confirm&trainingSessionId=${trainingSessionId}`,
+          url: confirmAppUrl,
         },
         {
           id: 'apologize_attendance',
           text: '❌ اعتذار',
-          url: `/?screen=training_confirm&action=apologize&trainingSessionId=${trainingSessionId}`,
+          url: apologizeAppUrl,
         },
       ];
 
       payload.buttons = options.buttons || defaultButtons;
-      payload.web_buttons = options.web_buttons || defaultWebButtons;
-      payload.url = options.url || `/?screen=training_confirm&trainingSessionId=${trainingSessionId}`;
-      payload.data.screen = 'training_confirm';
-      payload.data.deepLink = 'training_confirm';
+      payload.web_buttons = options.web_buttons 
+        ? options.web_buttons.map(b => ({ ...b, url: b.url ? resolveAppUrl(b.url, appOrigin) : targetUrl }))
+        : defaultWebButtons;
+      payload.url = targetUrl;
     } else {
       if (options.buttons) payload.buttons = options.buttons;
-      if (options.web_buttons) payload.web_buttons = options.web_buttons;
-      if (options.url) payload.url = options.url;
-    }
-
-    // إذا تم تمرير android_channel_id ديناميكياً من الطلب
-    if (options.data?.android_channel_id) {
-      payload.android_channel_id = options.data.android_channel_id;
+      if (options.web_buttons) {
+        payload.web_buttons = options.web_buttons.map(b => ({ ...b, url: b.url ? resolveAppUrl(b.url, appOrigin) : targetUrl }));
+      }
+      if (options.url) {
+        payload.url = resolveAppUrl(options.url, appOrigin);
+      }
     }
 
     // تحديد الجمهور المستهدف (Target Audience)
@@ -921,7 +1006,7 @@ async function startServer() {
     try {
       console.log(`🚀 [OneSignal API] جاري إرسال طلب POST عبر fetch إلى https://onesignal.com/api/v1/notifications...`);
       
-      const response = await fetch('https://onesignal.com/api/v1/notifications', {
+      let response = await fetch('https://onesignal.com/api/v1/notifications', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json; charset=utf-8',
@@ -930,14 +1015,38 @@ async function startServer() {
         body: JSON.stringify(payload),
       });
 
-      const responseStatus = response.status;
-      const responseText = await response.text();
+      let responseStatus = response.status;
+      let responseText = await response.text();
       let responseJson: any = null;
 
       try {
         responseJson = JSON.parse(responseText);
       } catch {
         responseJson = { raw: responseText };
+      }
+
+      // إذا حدث خطأ بسبب android_channel_id غير مسجل في لوحة OneSignal، نقوم بإعادة الإرسال فوراً بدون هذا الحقل
+      const errorStr = JSON.stringify(responseJson?.errors || responseText);
+      if (errorStr.includes('android_channel_id') || errorStr.includes('Could not find android_channel_id')) {
+        console.warn(`⚠️ [OneSignal Fallback] تم اكتشاف خطأ في android_channel_id، جاري إعادة الإرسال الفوري لجميع الأجهزة دون تحديد القناة...`);
+        delete payload.android_channel_id;
+
+        response = await fetch('https://onesignal.com/api/v1/notifications', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Authorization': `Basic ${apiKey}`,
+          },
+          body: JSON.stringify(payload),
+        });
+
+        responseStatus = response.status;
+        responseText = await response.text();
+        try {
+          responseJson = JSON.parse(responseText);
+        } catch {
+          responseJson = { raw: responseText };
+        }
       }
 
       console.log(`📥 [OneSignal HTTP Status]: ${responseStatus} ${response.statusText}`);
@@ -1062,7 +1171,7 @@ async function startServer() {
       type: req.body.type || 'general',
       trainingSessionId: req.body.trainingSessionId,
       galleryPostId: req.body.galleryPostId,
-      deepLink: req.body.deepLink || (isTraining ? 'training_confirm' : (req.body.type === 'gallery' ? 'gallery' : undefined)),
+      deepLink: req.body.deepLink || (isTraining ? 'home' : (req.body.type === 'gallery' ? 'gallery' : undefined)),
       date: req.body.date || 'الآن',
       read: false,
     };
@@ -1084,7 +1193,7 @@ async function startServer() {
         trainingSessionId: newNotif.trainingSessionId,
         galleryPostId: newNotif.galleryPostId,
         deepLink: newNotif.deepLink,
-        screen: isTraining ? 'training_confirm' : undefined,
+        screen: isTraining ? 'home' : (newNotif.type === 'gallery' ? 'gallery' : undefined),
       },
     }).catch((err) => {
       console.warn('OneSignal broadcast push error:', err);

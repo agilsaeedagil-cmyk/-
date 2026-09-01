@@ -182,12 +182,8 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     if (navigator.share) {
       navigator.share(shareData).catch(() => {});
-    } else {
-      navigator.clipboard.writeText(window.location.href).then(() => {
-        alert(t.shareAppCopied);
-      }).catch(() => {
-        alert(t.shareAppCopied);
-      });
+    } else if (navigator.clipboard) {
+      navigator.clipboard.writeText(window.location.href).catch(() => {});
     }
   };
 

@@ -262,11 +262,11 @@ export const NotificationsCenter: React.FC<NotificationsCenterProps> = ({
                       </span>
                       <button
                         onClick={(e) => handleDismissCard(notif.id, e)}
-                        className="p-1 rounded-full bg-red-950/80 hover:bg-red-800 text-red-200 border border-red-600/40 transition-transform active:scale-90"
-                        title="إلغاء الإشعار"
-                        aria-label="إلغاء الإشعار"
+                        className="p-1.5 rounded-lg bg-red-950/80 hover:bg-red-800 text-red-200 border border-red-600/40 transition-transform active:scale-90 cursor-pointer"
+                        title="حذف الإشعار نهائياً"
+                        aria-label="حذف الإشعار نهائياً"
                       >
-                        <X className="w-3.5 h-3.5" />
+                        <Trash2 className="w-3.5 h-3.5 text-red-400" />
                       </button>
                     </div>
                   </div>

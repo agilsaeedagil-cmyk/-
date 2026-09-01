@@ -302,7 +302,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setLiveEventPlayer('');
     setLiveEventPlayerOut('');
     setLiveEventPlayerIn('');
-    alert('تم نشر وإرسال الحدث المباشر مع إشعار فور للجمهور واللاعبين بنجاح!');
+    triggerNotification('✅ تم نشر وإرسال الحدث المباشر مع إشعار فور للجمهور واللاعبين بنجاح!');
     onRefreshData();
   };
 
@@ -322,7 +322,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
     await apiService.updateMatch(liveMatchModal.id, updatedMatch);
     setLiveMatchModal(updatedMatch);
-    alert('تم حفظ تشكيلة الفريقين الرسمية بنجاح!');
+    triggerNotification('✅ تم حفظ تشكيلة الفريقين الرسمية بنجاح!');
     onRefreshData();
   };
 
@@ -377,7 +377,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     e.preventDefault();
     if (isAddingProduct) return;
     if (!newProduct.name.trim()) {
-      alert('يرجى إدخال اسم المنتج أولاً');
+      triggerNotification('⚠️ يرجى إدخال اسم المنتج أولاً');
       return;
     }
     setIsAddingProduct(true);
@@ -795,7 +795,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       setIsAuthenticated(true);
     } else {
       setLoginError('خطأ في كلمة المرور! يرجى التأكد من الرمز وإعادة المحاولة.');
-      alert('خطأ في كلمة المرور!');
     }
   };
 
@@ -878,7 +877,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     e.preventDefault();
     if (isAddingMatch) return;
     if (!newMatch.awayTeam || !newMatch.awayTeam.trim()) {
-      alert('يرجى كتابة اسم الفريق المنافس أولاً قبل الإضافة');
+      triggerNotification('⚠️ يرجى كتابة اسم الفريق المنافس أولاً قبل الإضافة');
       return;
     }
 
@@ -913,7 +912,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       }
     } catch (err: any) {
       console.error("❌ Error adding match:", err);
-      alert('حدث خطأ أثناء إضافة المباراة: ' + (err?.message || 'يرجى المحاولة مرة أخرى'));
+      triggerNotification('❌ حدث خطأ أثناء إضافة المباراة: ' + (err?.message || 'يرجى المحاولة مرة أخرى'));
     } finally {
       setIsAddingMatch(false);
     }
@@ -921,7 +920,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const handleAddGoalEventToEditingMatch = () => {
     if (!editingMatch || !goalPlayerName.trim()) {
-      alert('يرجى كتابة أو اختيار اسم اللاعب المسجل أولاً');
+      triggerNotification('⚠️ يرجى كتابة أو اختيار اسم اللاعب المسجل أولاً');
       return;
     }
     const newEvent: GoalEvent = {
@@ -983,7 +982,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       }
     } catch (err: any) {
       console.error("❌ Error updating match:", err);
-      alert('حدث خطأ أثناء تحديث البيانات: ' + (err?.message || 'يرجى المحاولة لاحقاً'));
+      triggerNotification('❌ حدث خطأ أثناء تحديث البيانات: ' + (err?.message || 'يرجى المحاولة لاحقاً'));
     } finally {
       setIsUpdatingMatch(false);
     }
@@ -1008,7 +1007,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     e.preventDefault();
     if (isAddingPlayer) return;
     if (!newPlayer.name || !newPlayer.name.trim()) {
-      alert('يرجى كتابة اسم اللاعب أولاً قبل الإضافة');
+      triggerNotification('⚠️ يرجى كتابة اسم اللاعب أولاً قبل الإضافة');
       return;
     }
 
@@ -1054,7 +1053,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       }
     } catch (err: any) {
       console.error("❌ Error adding player:", err);
-      alert('حدث خطأ أثناء إضافة اللاعب: ' + (err?.message || 'يرجى المحاولة مرة أخرى'));
+      triggerNotification('❌ حدث خطأ أثناء إضافة اللاعب: ' + (err?.message || 'يرجى المحاولة مرة أخرى'));
     } finally {
       setIsAddingPlayer(false);
     }
@@ -1075,7 +1074,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       }
     } catch (err: any) {
       console.error("❌ Error updating player:", err);
-      alert('حدث خطأ أثناء تحديث بيانات اللاعب: ' + (err?.message || 'يرجى المحاولة لاحقاً'));
+      triggerNotification('❌ حدث خطأ أثناء تحديث بيانات اللاعب: ' + (err?.message || 'يرجى المحاولة لاحقاً'));
     } finally {
       setIsUpdatingPlayer(false);
     }
@@ -1190,12 +1189,27 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setDeleteConfirmState({
       isOpen: true,
       title: 'تأكيد حذف الإشعار',
-      message: 'هل أنت متأكد من حذف هذا الإشعار نهائياً من سجل وتطبيق الفريق وقاعدة البيانات؟',
+      message: 'هل أنت متأكد من حذف هذا الإشعار نهائياً من سجل وتطبيق الفريق وقاعدة البيانات (Firestore)؟',
       itemName: notif.title,
       onConfirm: async () => {
         await apiService.deleteNotification(notif.id);
         setNotificationsList((prev) => prev.filter((n) => n.id !== notif.id));
-        triggerNotification(`✅ تم حذف الإشعار "${notif.title}" بنجاح.`);
+        triggerNotification(`✅ تم حذف الإشعار "${notif.title}" نهائياً بنجاح.`);
+        if (onRefreshData) onRefreshData();
+      }
+    });
+  };
+
+  const handleDeleteTrainingSessionFromAdmin = (session: TrainingSession) => {
+    setDeleteConfirmState({
+      isOpen: true,
+      title: 'تأكيد حذف التمرين وإشعاره',
+      message: 'هل أنت متأكد من حذف هذا التمرين وإشعاره وسجل حضوره نهائياً ودائماً من قاعدة البيانات (Firebase Firestore)؟',
+      itemName: session.title,
+      onConfirm: async () => {
+        await apiService.deleteTrainingSession(session.id);
+        await apiService.deleteNotification(session.id);
+        triggerNotification(`✅ تم حذف التمرين "${session.title}" وإشعاره نهائياً.`);
         if (onRefreshData) onRefreshData();
       }
     });
@@ -1902,6 +1916,51 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   )}
                 </button>
               </form>
+
+              {/* Current Active Training Sessions with Direct Delete */}
+              {trainingSessions && trainingSessions.length > 0 && (
+                <div className="bg-[#180e0e] border border-amber-500/30 rounded-2xl p-4 space-y-3 shadow-md">
+                  <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                    <h3 className="font-extrabold text-amber-300 text-xs sm:text-sm flex items-center gap-1.5">
+                      <span>🏃‍♂️</span> التمارين المسجلة الحالية ({trainingSessions.length}):
+                    </h3>
+                  </div>
+
+                  <div className="space-y-2">
+                    {trainingSessions.map((session) => (
+                      <div
+                        key={session.id}
+                        className="bg-[#120808] border border-amber-500/20 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-black text-white text-xs sm:text-sm">{session.title}</span>
+                            <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-full font-bold">
+                              ⏰ {session.time}
+                            </span>
+                            <span className="text-[10px] bg-black/60 text-gray-300 border border-white/10 px-2 py-0.5 rounded-md">
+                              📍 {session.location}
+                            </span>
+                          </div>
+                          {session.note && (
+                            <p className="text-xs text-gray-300 line-clamp-1">{session.note}</p>
+                          )}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteTrainingSessionFromAdmin(session)}
+                          className="self-end sm:self-center px-3 py-1.5 bg-red-950/60 hover:bg-red-900 text-red-300 border border-red-500/40 hover:border-red-500 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 shadow cursor-pointer"
+                          title="حذف هذا التمرين وإشعاره نهائياً"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>حذف نهائي</span>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Attendance Dashboard */}
               <div className="bg-[#140e0e] border border-red-900/50 rounded-2xl p-4 space-y-4">
