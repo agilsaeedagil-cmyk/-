@@ -2,6 +2,24 @@
 
 export const SALAM_ANDROID_CHANNEL_ID = 'd375dad7-cf17-40a3-9cb2-10d3aacffa67';
 
+/**
+ * فحص دقيق وشامل لبيئة تطبيق Median Native لمنع تسجيل أجهزة أندرويد كمشتركي ويب بطريق الخطأ
+ */
+export function isMedianNativeApp(): boolean {
+  if (typeof window === 'undefined') return false;
+  const win = window as any;
+  const ua = (navigator.userAgent || navigator.vendor || (window as any).opera || '').toLowerCase();
+
+  return Boolean(
+    win.median ||
+    win.gonative ||
+    win.plugins?.OneSignal ||
+    ua.includes('median') ||
+    ua.includes('gonative') ||
+    ua.includes('wv')
+  );
+}
+
 export interface AndroidChannelConfig {
   id: string;
   name: string;
@@ -178,32 +196,52 @@ export async function requestAndSetupOneSignalWithHighImportanceChannel(): Promi
   let subscriptionId: string | undefined = undefined;
 
   try {
-    // 1. طلب إذن الإشعارات عبر OneSignal Web SDK v16 إذا كان متاحاً
-    const OneSignal = (window as any).OneSignal;
-    if (OneSignal && OneSignal.Notifications) {
-      console.log("📲 جاري طلب إذن الإشعارات عبر OneSignal.Notifications.requestPermission(true)...");
-      await OneSignal.Notifications.requestPermission(true);
-      permissionGranted = OneSignal.Notifications.permission === true || Notification.permission === 'granted';
-      subscriptionId = OneSignal.User?.pushSubscription?.id;
-    } else {
-      // 2. طلب الإذن عبر نافذة المتصفح القياسية
-      const nativePerm = await Notification.requestPermission();
-      permissionGranted = nativePerm === 'granted';
-    }
+    const isMedian = isMedianNativeApp();
 
-    // 3. التكامل مع Median Push Plugin إذا كان التطبيق يعمل داخل تطبيق Android/iOS المبني بـ Median
-    const median = (window as any).median;
-    if (median && median.push) {
-      try {
-        if (typeof median.push.register === 'function') {
-          median.push.register();
+    if (isMedian) {
+      console.log("📱 [Salam App] تم اكتشاف تطبيق Median Native - جاري استدعاء تسجيل القناة وطلب إذن النظام الأصلي...");
+      registerAndroidNotificationChannel();
+
+      const median = (window as any).median;
+      const gonative = (window as any).gonative;
+
+      if (median?.push?.register) {
+        median.push.register();
+      } else if (gonative?.push?.register) {
+        gonative.push.register();
+      }
+
+      if (median?.push?.getTokens) {
+        try {
+          const tokens = await median.push.getTokens();
+          if (tokens) {
+            subscriptionId = tokens.oneSignalSubscriptionId || tokens.oneSignalPlayerId || tokens.userId;
+          }
+        } catch (tokErr) {
+          console.warn("Median tokens note:", tokErr);
         }
-        const tokens = await median.push.getTokens();
-        if (tokens) {
-          subscriptionId = tokens.oneSignalSubscriptionId || tokens.oneSignalPlayerId || subscriptionId;
-        }
-      } catch (mErr) {
-        console.warn("ℹ️ Median push bridge notice:", mErr);
+      }
+
+      if (typeof Notification !== 'undefined' && 'requestPermission' in Notification) {
+        try {
+          const perm = await Notification.requestPermission();
+          permissionGranted = perm === 'granted';
+        } catch {}
+      } else {
+        permissionGranted = true;
+      }
+    } else {
+      // 1. طلب إذن الإشعارات عبر OneSignal Web SDK v16 إذا كان متاحاً في المتصفح العادي
+      const OneSignal = (window as any).OneSignal;
+      if (OneSignal && OneSignal.Notifications) {
+        console.log("📲 جاري طلب إذن الإشعارات عبر OneSignal.Notifications.requestPermission(true)...");
+        await OneSignal.Notifications.requestPermission(true);
+        permissionGranted = OneSignal.Notifications.permission === true || Notification.permission === 'granted';
+        subscriptionId = OneSignal.User?.pushSubscription?.id;
+      } else {
+        // 2. طلب الإذن عبر نافذة المتصفح القياسية
+        const nativePerm = await Notification.requestPermission();
+        permissionGranted = nativePerm === 'granted';
       }
     }
 
